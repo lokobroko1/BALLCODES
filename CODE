@@ -2060,6 +2060,7 @@ class Meteor:
     x: float = 0.0; speed: float = 6.0; radius: float = 16.0
     blast_radius: float = 60.0; exploded: bool = False
     explosion_frame: int = -1; warning_shown: bool = True
+    current_blast_radius: float = 0.0
 
 @dataclass
 class Spike:
@@ -2168,6 +2169,11 @@ class HazardManager:
             if not m_obj.exploded:
                 m_obj.current_y+=m_obj.speed
                 if m_obj.current_y>=m_obj.target_y: m_obj.exploded=True; m_obj.explosion_frame=frame
+            else:
+                age=frame-m_obj.explosion_frame
+                expand_frames=15
+                if age<=expand_frames:
+                    m_obj.current_blast_radius=m_obj.blast_radius*((age+1)/expand_frames)
         self.meteors=[m_obj for m_obj in self.meteors if not m_obj.exploded or frame-m_obj.explosion_frame<30]
 
         for sp in self.spikes:
@@ -2190,10 +2196,11 @@ class HazardManager:
 
     def check_ball_death(self, ball, frame, arena):
         """
-        *** SHOCKWAVE FIX ***
-        Now kills balls that are INSIDE the entire swept area (from center
-        to current_radius), not just at the thin ring edge.
-        The shockwave acts like a solid expanding disc of death.
+        Visual-gameplay sync: kills happen exactly when the visual hazard reaches a ball.
+        - Shockwave: thin ring band matched to visual ring (kill_thickness = thickness/2)
+        - Meteor: expanding blast radius from 0 to blast_radius over 15 frames
+        - Laser: kill_radius = thickness/2 + ball_radius (matches beam visuals)
+        - All other hazards: kill zones match visual representations exactly
         """
         if not ball.alive or ball.invincible_timer>0: return False
         bx,by,br=ball.x,ball.y,ball.radius
@@ -2216,25 +2223,19 @@ class HazardManager:
             if dw.side=="top" and by-br<ay1+dw.position: return True
             if dw.side=="bottom" and by+br>ay2-dw.position: return True
 
-        # *** SHOCKWAVE — FIXED: kills during ENTIRE expansion ***
-        # The shockwave is a solid expanding disc. Any ball whose center
-        # is within (current_radius + ball_radius) from the shockwave
-        # center gets killed. This means it kills on contact as it
-        # sweeps outward, not just at the final thin ring.
+        # *** SHOCKWAVE — REAL-TIME PROGRESSIVE KILL ***
+        # The visual ring is drawn centered on current_radius with width = thickness.
+        # A ball dies precisely when the expanding visual ring sweeps over it:
+        # abs(dist - current_radius) < kill_thickness + ball_radius
+        # where kill_thickness = thickness/2 so the band exactly matches the visual ring.
         for sw in self.shockwaves:
             dist = math.hypot(bx - sw.cx, by - sw.cy)
-            # Kill if ball is within the expanding disc edge + thickness
-            # The disc sweeps from 0 to current_radius, the kill zone is
-            # the ring from (current_radius - kill_thickness) to (current_radius + ball_radius)
-            # This ensures anything the wave passes over gets hit
-            inner_edge = max(0.0, sw.current_radius - sw.kill_thickness)
-            outer_edge = sw.current_radius + br
-            if inner_edge < dist < outer_edge:
+            if abs(dist - sw.current_radius) < sw.kill_thickness + br:
                 return True
 
         for m_obj in self.meteors:
-            if m_obj.exploded and frame-m_obj.explosion_frame<4:
-                if math.hypot(bx-m_obj.target_x,by-m_obj.target_y)<m_obj.blast_radius: return True
+            if m_obj.exploded and m_obj.current_blast_radius>0:
+                if math.hypot(bx-m_obj.target_x,by-m_obj.target_y)<m_obj.current_blast_radius+br: return True
 
         for sp in self.spikes:
             if sp.warmup_frames>0: continue
@@ -2251,7 +2252,7 @@ class HazardManager:
             if lz.side=="right" and bx+br>ax2-th: return True
 
         for v in self.vortices:
-            if math.hypot(bx-v.x,by-v.y)<v.kill_radius: return True
+            if math.hypot(bx-v.x,by-v.y)<v.kill_radius+br: return True
 
         return False
 
@@ -2281,7 +2282,7 @@ def _snapshot_hazards(hazards):
         "spinning_lasers":[(sl.cx,sl.cy,sl.angle,sl.length,sl.thickness,sl.kill_radius,sl.color,sl.arms,sl.warmup_frames) for sl in hazards.spinning_lasers],
         "death_walls":[(dw.side,dw.position,dw.color,dw.warmup_frames,dw.retreating) for dw in hazards.death_walls],
         "shockwaves":[(sw.cx,sw.cy,sw.current_radius,sw.thickness,sw.color,sw.kill_thickness) for sw in hazards.shockwaves],
-        "meteors":[(m_obj.target_x,m_obj.target_y,m_obj.current_y,m_obj.x,m_obj.radius,m_obj.blast_radius,m_obj.exploded,m_obj.explosion_frame) for m_obj in hazards.meteors],
+        "meteors":[(m_obj.target_x,m_obj.target_y,m_obj.current_y,m_obj.x,m_obj.radius,m_obj.blast_radius,m_obj.exploded,m_obj.explosion_frame,m_obj.current_blast_radius) for m_obj in hazards.meteors],
         "spikes":[(sp.x,sp.y,sp.radius,sp.pulse_phase,sp.warmup_frames) for sp in hazards.spikes],
         "lava_zones":[(lz.side,lz.thickness,lz.warmup_frames) for lz in hazards.lava_zones],
         "vortices":[(v.x,v.y,v.radius,v.rotation,v.kill_radius) for v in hazards.vortices],
@@ -2293,7 +2294,7 @@ def _restore_hazards(hazards, snap):
     hazards.death_walls=[DeathWall(side=s,position=p,color=c,warmup_frames=wf,retreating=ret) for s,p,c,wf,ret in snap["death_walls"]]
     # *** UPDATED: now restores kill_thickness too ***
     hazards.shockwaves=[Shockwave(cx=cx,cy=cy,current_radius=cr,thickness=th,color=c,kill_thickness=kt) for cx,cy,cr,th,c,kt in snap["shockwaves"]]
-    hazards.meteors=[Meteor(target_x=tx,target_y=ty,current_y=cy_m,x=mx,radius=r,blast_radius=br,exploded=ex,explosion_frame=ef) for tx,ty,cy_m,mx,r,br,ex,ef in snap["meteors"]]
+    hazards.meteors=[Meteor(target_x=tx,target_y=ty,current_y=cy_m,x=mx,radius=r,blast_radius=br,exploded=ex,explosion_frame=ef,current_blast_radius=cbr) for tx,ty,cy_m,mx,r,br,ex,ef,cbr in snap["meteors"]]
     hazards.spikes=[Spike(x=x,y=y,radius=r,pulse_phase=pp,warmup_frames=wf) for x,y,r,pp,wf in snap["spikes"]]
     hazards.lava_zones=[LavaZone(side=s,thickness=th,warmup_frames=wf) for s,th,wf in snap["lava_zones"]]
     hazards.vortices=[Vortex(x=x,y=y,radius=r,rotation=rot,kill_radius=kr) for x,y,r,rot,kr in snap["vortices"]]
@@ -2325,11 +2326,12 @@ def _ch_fireball(balls,arena,hazards,rng,config,**kw):
 def _ch_spinning_laser(balls,arena,hazards,rng,config,**kw):
     ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
     length=min(ax2-ax1,ay2-ay1)*0.35
+    sl_thickness=rng.uniform(8,14)
     hazards.spinning_lasers.append(SpinningLaser(
         cx=cx+rng.uniform(-30,30),cy=cy+rng.uniform(-30,30),
         angle=rng.uniform(0,2*math.pi),length=length,
         speed=rng.uniform(0.030,0.060),
-        thickness=rng.uniform(8,14),kill_radius=rng.uniform(10,16),
+        thickness=sl_thickness,kill_radius=sl_thickness/2+config.ball_radius,
         arms=rng.choice([2,2,3]),
         warmup_frames=30,lifetime_frames=700))
 
@@ -2350,7 +2352,7 @@ def _ch_shockwave(balls,arena,hazards,rng,config,**kw):
         cx=rng.uniform(ax1+50,ax2-50),cy=rng.uniform(ay1+50,ay2-50),
         speed=rng.uniform(4.0,7.0),
         max_radius=arena_min*rng.uniform(0.35,0.50),
-        thickness=thick,kill_thickness=thick,
+        thickness=thick,kill_thickness=thick/2,
         color=(255,255,rng.randint(50,200))))
 
 @_register("METEOR SHOWER","[COMET]","meteor")
@@ -2995,7 +2997,7 @@ class Renderer:
             else:
                 age=frame-m_obj.explosion_frame
                 if age<30:
-                    ep=age/30.0; er=int(m_obj.blast_radius*min(1.0,ep*2)); alpha_f=1.0-ep
+                    ep=age/30.0; er=int(round(m_obj.current_blast_radius)); alpha_f=1.0-ep
                     exp_colors=[(255,255,200),(255,180,50),(255,80,0)]
                     ci_e=min(len(exp_colors)-1,int(ep*len(exp_colors)))
                     ec=tuple(int(v*alpha_f) for v in exp_colors[ci_e])
