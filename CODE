@@ -1,0 +1,3548 @@
+# ============================================================================
+# BRAINROT BATTLE ROYALE — v6.1 (SHOCKWAVE FIX + BIGGER WINNER)
+# ============================================================================
+# Changes vs v6:
+#  - SHOCKWAVE FIX: Kills balls during ENTIRE expansion, not just at edge
+#  - WINNER SCREEN: Avatar is 15-20% bigger
+#  - All v6 features preserved
+# ============================================================================
+
+import subprocess, sys
+
+_PACKAGES = ["moviepy", "Pillow", "numpy", "gTTS", "pydub", "requests"]
+for _pkg in _PACKAGES:
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-q", _pkg],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print("OK: Dependencies installed.")
+
+import os, io, math, time, random, colorsys, gc, glob, traceback, hashlib
+import wave as wave_mod
+import requests
+from dataclasses import dataclass, field
+from typing import List, Dict, Tuple, Optional, Any, Callable, Set
+from pathlib import Path
+from copy import deepcopy
+from urllib.parse import quote
+
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+from moviepy.editor import VideoClip, AudioFileClip
+from moviepy.audio.AudioClip import AudioClip
+from gtts import gTTS
+from pydub import AudioSegment
+
+print("OK: All imports loaded.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GITHUB CUSTOM IMAGE LOADER — AUTO-DETECT ANY NUMBER OF IMAGES
+# ─────────────────────────────────────────────────────────────────────────────
+
+GITHUB_REPO_OWNER = "lokobroko1"
+GITHUB_REPO_NAME  = "BALLIMAGES"
+GITHUB_BRANCH     = "main"
+GITHUB_API_URL    = f"https://api.github.com/repos/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/contents"
+GITHUB_RAW_BASE   = f"https://raw.githubusercontent.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}/{GITHUB_BRANCH}"
+
+def discover_github_images(cache_dir="/content/github_avatars"):
+    """
+    Auto-discovers ALL .png images in the GitHub repo.
+    Works with 001.png, 002.png, ... NNN.png
+    No code changes needed when you add more images!
+    Returns a list of PIL Images (RGBA, 96x96).
+    """
+    os.makedirs(cache_dir, exist_ok=True)
+    images = []
+    png_files = []
+
+    # Step 1: Query GitHub API to list ALL files in the repo
+    print(f"[*] Querying GitHub repo: {GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME} ...")
+    try:
+        resp = requests.get(GITHUB_API_URL, timeout=15, headers={"Accept": "application/vnd.github.v3+json"})
+        if resp.status_code == 200:
+            contents = resp.json()
+            for item in contents:
+                if item.get("type") == "file" and item.get("name", "").lower().endswith(".png"):
+                    png_files.append(item["name"])
+            png_files.sort()
+            print(f"[OK] Found {len(png_files)} PNG images in repo: {png_files}")
+        else:
+            print(f"[WARN] GitHub API returned {resp.status_code}. Trying fallback method...")
+            png_files = _fallback_discover(cache_dir)
+    except Exception as e:
+        print(f"[WARN] GitHub API failed: {e}. Trying fallback method...")
+        png_files = _fallback_discover(cache_dir)
+
+    # Step 2: Download each image
+    for fname in png_files:
+        raw_url = f"{GITHUB_RAW_BASE}/{fname}"
+        cache_path = os.path.join(cache_dir, fname)
+
+        if os.path.exists(cache_path):
+            try:
+                img = Image.open(cache_path).convert("RGBA")
+                img = img.resize((96, 96), Image.LANCZOS)
+                images.append(img)
+                print(f"  [CACHE] {fname}")
+                continue
+            except Exception:
+                pass
+
+        try:
+            print(f"  [DOWNLOAD] {raw_url} ...")
+            img_resp = requests.get(raw_url, timeout=20)
+            if img_resp.status_code == 200:
+                img_data = img_resp.content
+                with open(cache_path, "wb") as f:
+                    f.write(img_data)
+                img = Image.open(io.BytesIO(img_data)).convert("RGBA")
+                img = img.resize((96, 96), Image.LANCZOS)
+                images.append(img)
+                print(f"  [OK] {fname} ({len(img_data)//1024}KB)")
+            else:
+                print(f"  [SKIP] {fname} - HTTP {img_resp.status_code}")
+        except Exception as e:
+            print(f"  [ERROR] {fname}: {e}")
+
+    print(f"[RESULT] Loaded {len(images)} custom images from GitHub.")
+    return images
+
+def _fallback_discover(cache_dir):
+    """Fallback: try sequential filenames 001.png, 002.png, ... until 404."""
+    found = []
+    for i in range(1, 1001):
+        fname = f"{i:03d}.png"
+        raw_url = f"{GITHUB_RAW_BASE}/{fname}"
+        try:
+            resp = requests.head(raw_url, timeout=5)
+            if resp.status_code == 200:
+                found.append(fname)
+            else:
+                if len(found) > 0 and i > int(found[-1].replace(".png","")) + 5:
+                    break
+        except Exception:
+            break
+    print(f"[FALLBACK] Found {len(found)} images: {found}")
+    return found
+
+print("OK: GitHub image loader ready.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MASSIVE BRAINROT NAME POOL (200+)
+# ─────────────────────────────────────────────────────────────────────────────
+
+BRAINROT_NAMES: List[str] = [
+    "Tralalero Tralala", "Bombardino Crocodilo", "Tung Tung Sahur",
+    "Ballerina Cappuccina", "Lirili Larila", "Brr Brr Patapim",
+    "Chimpanzini Bananini", "Boneca Ambalabu", "Capuccino Assassino",
+    "Frigo Camelo", "Trippi Troppi", "La Vaca Saturno", "Glorbo",
+    "Bombombini Gusini", "Cocofanto", "Frulli Frullino", "Brrr Brrr",
+    "Cappuccino Sicario", "Girafa Celeste", "Pinguino Saltarino",
+    "Skibidi Toilet", "Cameraman", "Speakerman", "TV Man",
+    "Titan Cameraman", "Plungerman", "G-Man", "Toilet Hybrid",
+    "Sigma Boy", "Rizz God", "Rizzler", "Giga Chad", "John Pork",
+    "Grimace Shake", "Smurf Cat", "Ohio Boss", "Gyatt King", "Hawk Tuah",
+    "Kai Cenat", "Speed", "Caseoh", "Fanum Tax", "Duke Dennis",
+    "Baby Gronk", "Quandale Dingle",
+    "Amogus", "Freddy Fazbear", "Doge", "Pepe", "Nyan Cat",
+    "Big Chungus", "Ugandan Knuckles", "Sans Undertale", "Sonic",
+    "Creeper", "Steve MC", "Drip Goku", "Shrek", "Spongebob",
+    "Walter White", "Rick Astley", "Mr Beast", "Hasbulla",
+    "Toothless Dance", "Pingu", "Goofy Ahh", "Peter Griffin",
+    "Morbius", "Thanos", "Dababy", "Stonks", "Bingus", "Floppa",
+    "Juan Horse", "NPC Man", "Mewing Master", "Pibby", "Waluigi",
+    "Luigi Death Stare", "Enderman", "Patrick Star", "Vibe Check",
+    "Skill Issue", "Caught in 4K", "Sus Baka", "Edging Expert",
+    "Ratio King", "W Holder", "Cope Lord", "Blud", "Bruh Moment",
+    "Based King", "Touch Grass", "Yeet Champion", "Main Character",
+    "Plot Armor", "Did You Pray", "Ayo?!", "It's Corn",
+    "Glizzy Gobbler", "Dream", "Baby Shark", "Shadow", "Ankha Zone",
+    "Jellybean", "No Cap", "Bussin Boy", "Livvy Dunne", "Gigachad Jr",
+    "Tim Cheese", "Sigma Grindset", "NPC Energy", "Rizz Master", "Ohio Kid",
+    "Skibidi Boy", "Gyatt Mode", "Bussin Hard", "Slay Queen",
+    "Vibe King", "Ratio Lord", "Cap Free", "Touch Grass Bro",
+    "Mew Lord", "Looksmax God", "Delulu King", "Ick Factor",
+    "Understood Assignment", "No Printer", "Understood Nothing",
+    "Rent Free", "Living Rent Free", "Core Memory", "Roman Empire",
+    "Down Bad", "Caught Lacking", "Different Breed", "Built Different",
+    "Glazing Bro", "Twin", "Bestie", "Ate That", "Snatched",
+    "Rizz Unlocked", "Girlboss", "Gaslight King", "Gatekeep God",
+    "Delulu Is Solulu", "Rizz No Cap", "NPC Detected",
+    "Literal Goat", "Hawk Tua Gurl", "That Girl", "That Boy",
+    "The Goat", "The Sigma", "The NPC", "The Rizzler",
+    "The Based One", "The Cope King", "The W Guy", "The Bruh",
+    "Top G", "Mr Sussy", "Mr Based", "Mr Sigma", "Mr Rizz",
+    "Dr Skibidi", "Dr Ohio", "Dr Gyatt", "Prof Sigma", "Prof Brainrot",
+    "King Brainrot", "Queen Brainrot", "Lord Ratio", "Duke Cope",
+    "Captain Sigma", "Admiral Rizz", "General Gyatt",
+    "Agent Ohio", "Officer NPC", "Sergeant Skibidi",
+    "Toilet Warrior", "Fanum Taxer", "Ohio Final Boss",
+    "Mewing Streak", "Aura Points", "Negative Aura",
+    "Sigma Stare", "Mogging King", "Mogger Supreme",
+    "Ice Spice", "Skibidi Rizz", "Gyatt Daddy",
+    "Sussy Imposter", "Vent God", "Emergency Meeting",
+    "Brainrot Prime", "Cooked Beyond", "Absolutely Cooked",
+    "L Ratio", "W Rizz", "Unhinged NPC", "Devious Lick",
+    "Ohio Survivor", "Backrooms Entity", "Level 0 NPC",
+    "Liminal King", "Uncanny Mr", "Mr Incredible",
+    "Canny Valley", "Pool Rooms", "Async Research",
+    "Entity 0", "Partygoer", "Skin Stealer",
+    "Fanum Phantom", "Rizz Phantom", "Ghost Sigma",
+    "Phantom Tax", "Aura Demon", "Aura Angel",
+    "Sigma Wolf", "Lone Wolf", "Alpha Sigma",
+    "Beta Cope", "Omega Ratio", "Delta Bruh",
+    "Gamma Gyatt", "Theta Rizz", "Zeta Skibidi",
+    "Toilet Supreme", "Plunger God", "Flush King",
+    "Drain Gang", "Pipe Lord", "Sewer Boss",
+    "Giga Toilet", "Mini Cameraman", "TV Woman",
+    "Speaker Boss", "Clock Man", "Compass Man",
+    "Astro Toilet", "Dark Speakerman", "Upgraded Titan",
+    "Corrupted Cameraman", "Glitch TV", "Error 404 Man",
+    "Pixelated NPC", "Render Distance", "Chunk Error",
+    "Lag Spike", "Ping 999", "Rubber Band",
+    "Desync Lord", "Packet Loss", "Server Crash",
+]
+
+BRAINROT_CHARACTERS: List[Dict[str, Any]] = [{"name": n} for n in BRAINROT_NAMES]
+print(f"OK: {len(BRAINROT_NAMES)} brainrot names loaded.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FONT HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_font(size: int):
+    for path in [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ]:
+        if os.path.exists(path):
+            try: return ImageFont.truetype(path, size)
+            except Exception: continue
+    return ImageFont.load_default()
+
+def _draw_text_centered(draw, text, font, cx, cy, fill, outline=(0, 0, 0)):
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+    x, y = cx-tw//2, cy-th//2
+    for dx in (-1,0,1):
+        for dy in (-1,0,1):
+            if dx or dy: draw.text((x+dx, y+dy), text, font=font, fill=outline)
+    draw.text((x, y), text, font=font, fill=fill)
+
+def _hsv(h, s, v, a=255):
+    r, g, b = colorsys.hsv_to_rgb(h%1.0, s, v)
+    return (int(r*255), int(g*255), int(b*255), a)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BRAINROT WORD / EMOJI / SYMBOL POOLS
+# ──────────────────────────��──────────────────────────────────────────────────
+
+_BRAINROT_WORDS = [
+    "SIGMA","RIZZ","SKIBIDI","OHIO","GYATT","NPC","SLAY","BUSSIN",
+    "RATIO","CAP","W","L","GOAT","BASED","COPE","YEET","BRUH","SUS",
+    "VIBE","BLUD","TWIN","ATE","SNATCHED","GLAZING","DELULU","MEWING",
+    "DOWN BAD","COOKED","NO CAP","GG","EZ","OP","MVP","GOATED",
+    "RENT FREE","TOXIC","AURA","MOGGING","FANUM","HAWK TUAH","FR FR",
+    "ON GOD","SHEESH","BET","SLAY","PURR","PERIODT","UNDERSTOOD",
+    "DEVIOUS","UNHINGED","VALID","FIRE","LOWKEY","HIGHKEY","DEADASS",
+    "NO SHOT","CAUGHT","4K","RIZZY","SIGMABOY","GIGACHAD","DRIP",
+    "FLEX","GRIND","ALPHA","BETA","OMEGA","PRIME","SUPREME","ULTRA",
+    "FADED","GLAZE","MANGO","YAPPING","TWEAKING","ICK","BFFR","NAUR",
+    "PRESSED","SALTY","RENT","OOMF","IYKYK","HITS DIFFERENT","ATE LEFT",
+]
+
+_BRAINROT_EMOJIS = [
+    "💀","🗿","😭","🔥","💯","🤡","👽","🧠","💅","✨","🫠","🤯","😤",
+    "🥶","🥵","😎","🤓","👁️","🦷","💀","🎭","🃏","🎪","🎰","🎲",
+    "🚽","📸","📺","🔊","⚡","🌀","☠️","👻","🤖","🎮","🕹️","💎",
+    "🏆","🥇","👑","⭐","🌟","🌈","🎯","🎵","🎶","🍕","🌶️","🧃",
+    "🍦","🎂","🍿","🌽","🥜","🐸","🐱","🐶","🦊","🐻","🐼","🦁",
+    "🦈","🐧","🦆","🐔","🦅","🦇","🐙","🦑","🐌","🦋","🐝","🐞",
+]
+
+_SYMBOL_CHARS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@$%!?*&+=~<>{}[]")
+
+_FACE_EXPRESSIONS = [
+    "(o_o)", "(x_x)", "(T_T)", "(>_<)", "(@_@)", "(._. )", "(-_-)",
+    "(^_^)", "(;_;)", "(*_*)", "(O_O)", "(0_0)", "(._o)", "(e_e)",
+    "(u_u)", "(n_n)", "(q_q)", "(p_p)", "(d_d)", "(b_b)",
+]
+
+_BRAINROT_PHRASES = [
+    "IM COOKED","HELP ME","NO SHOT","BRUH WHY","SEND HELP",
+    "ITS OVER","NOT REAL","WAKE UP","IM DONE","CANT COPE",
+    "FR THO","ON GOD","NO CAP","THATS CRAZY","RESPECTFULLY",
+    "ABSOLUTELY NOT","DOWN BAD","TOUCH GRASS","SKILL ISSUE","GG",
+    "FADED","TWEAKING","YAPPING","ICK","NAUR","SALTY","PRESSED",
+    "RENT FREE","HITS DIFF","ATE THAT","ITS GIVING","PERIODT",
+]
+
+print("OK: Brainrot data pools loaded.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ======================== 50+ ULTRA BRAINROT AVATAR STYLES ==================
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _avatar_faded_eyes(rng, size):
+    """Face where the eyes ARE words like 'FADED' and mouth is a sad curve."""
+    h = rng.random()
+    bg = _hsv(h, 0.5, 0.25)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    face_r = int(size * 0.38)
+    face_col = _hsv(h, 0.15, 0.85)
+    draw.ellipse([m-face_r, m-face_r+5, m+face_r, m+face_r+5], fill=face_col)
+    eye_words = rng.choice([
+        ("FADED","FADED"), ("DEAD","INSIDE"), ("HELP","ME"),
+        ("NO","SHOT"), ("DOWN","BAD"), ("COOKED","DONE"),
+        ("SEND","HELP"), ("BRUH","WHY"), ("ITS","OVER"),
+        ("COPE","SEETHE"), ("RATIO","'D"), ("L","BOZO"),
+    ])
+    eye_font = _get_font(max(6, size // 8))
+    ey = m - int(size * 0.08)
+    _draw_text_centered(draw, eye_words[0], eye_font, m - int(size*0.15), ey,
+                        fill=(255, 50, 50, 255), outline=(0,0,0,180))
+    _draw_text_centered(draw, eye_words[1], eye_font, m + int(size*0.15), ey,
+                        fill=(255, 50, 50, 255), outline=(0,0,0,180))
+    mw = int(size * 0.18)
+    my = m + int(size * 0.15)
+    draw.arc([m-mw, my, m+mw, my+mw], start=200, end=340,
+             fill=(80, 40, 30, 220), width=max(2, size//14))
+    if rng.random() < 0.6:
+        tear_col = (80, 150, 255, 180)
+        for ex in (m - int(size*0.15), m + int(size*0.15)):
+            tear_len = rng.randint(size//10, size//6)
+            draw.line([(ex, ey + 8), (ex, ey + 8 + tear_len)],
+                      fill=tear_col, width=max(2, size//20))
+    if rng.random() < 0.5:
+        phrase = rng.choice(["im cooked", "its over", "help", "faded", "done"])
+        pf = _get_font(max(6, size//10))
+        _draw_text_centered(draw, phrase, pf, m, m + int(size*0.32),
+                            fill=(200, 200, 200, 180), outline=(0,0,0,100))
+    return img
+
+def _avatar_meltdown(rng, size):
+    """Face that looks like it's melting — droopy eyes, dripping colors."""
+    h = rng.random()
+    bg = _hsv(h, 0.7, 0.6)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    drip_col = _hsv((h + 0.3) % 1.0, 0.9, 0.95)
+    for _ in range(rng.randint(5, 12)):
+        dx = rng.randint(m - size//3, m + size//3)
+        dy_start = rng.randint(5, size//3)
+        dy_end = rng.randint(size//2, size - 5)
+        dw = rng.randint(2, 6)
+        draw.line([(dx, dy_start), (dx, dy_end)], fill=drip_col, width=dw)
+        draw.ellipse([dx-dw, dy_end-dw, dx+dw, dy_end+dw], fill=drip_col)
+    left_ey = m - int(size * 0.12) + rng.randint(-5, 5)
+    right_ey = m - int(size * 0.12) + rng.randint(-5, 5)
+    er = int(size * rng.uniform(0.05, 0.09))
+    draw.ellipse([m - int(size*0.17) - er, left_ey - er,
+                  m - int(size*0.17) + er, left_ey + er + rng.randint(2,8)],
+                 fill=(30, 30, 30, 255))
+    draw.ellipse([m + int(size*0.17) - er, right_ey - er,
+                  m + int(size*0.17) + er, right_ey + er],
+                 fill=(30, 30, 30, 255))
+    pts = []
+    mx_start = m - int(size * 0.2)
+    mx_end = m + int(size * 0.2)
+    my_base = m + int(size * 0.15)
+    for i in range(15):
+        xp = mx_start + (mx_end - mx_start) * i // 14
+        yp = my_base + int(rng.uniform(-6, 6) * math.sin(i * 0.8))
+        pts.append((xp, yp))
+    if len(pts) >= 2:
+        draw.line(pts, fill=(40, 20, 10, 220), width=max(2, size//16))
+    if rng.random() < 0.4:
+        tf = _get_font(max(6, size//9))
+        word = rng.choice(["MELTING", "COOKED", "DONE", "HELP"])
+        _draw_text_centered(draw, word, tf, m, m + int(size*0.33),
+                            fill=(255,255,255,200), outline=(0,0,0,120))
+    return img
+
+def _avatar_npc_stare(rng, size):
+    """The classic NPC face — completely blank, dead inside."""
+    bg = (rng.randint(180, 220), rng.randint(160, 200), rng.randint(130, 170), 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    head_r = int(size * 0.35)
+    head_col = (240, 210, 180, 255)
+    draw.ellipse([m-head_r, m-head_r+3, m+head_r, m+head_r+3], fill=head_col)
+    dot_r = max(2, size // 18)
+    ey = m - int(size * 0.05)
+    draw.ellipse([m - int(size*0.12) - dot_r, ey - dot_r,
+                  m - int(size*0.12) + dot_r, ey + dot_r], fill=(20,20,20,255))
+    draw.ellipse([m + int(size*0.12) - dot_r, ey - dot_r,
+                  m + int(size*0.12) + dot_r, ey + dot_r], fill=(20,20,20,255))
+    mw = int(size * 0.12)
+    my = m + int(size * 0.10)
+    draw.line([(m - mw, my), (m + mw, my)], fill=(80, 50, 40, 200), width=max(2, size//18))
+    label = rng.choice(["NPC", "BOT", "AI", ".exe", "NPC.exe", "0 AURA"])
+    lf = _get_font(max(7, size // 7))
+    _draw_text_centered(draw, label, lf, m, m + int(size * 0.28),
+                        fill=(255, 80, 80, 255), outline=(0,0,0,180))
+    if rng.random() < 0.5:
+        thought = rng.choice(["...", "???", "404", "null", "void"])
+        tf = _get_font(max(6, size//10))
+        _draw_text_centered(draw, thought, tf, m + int(size*0.2), m - int(size*0.25),
+                            fill=(150,150,150,200), outline=(0,0,0,80))
+    return img
+
+def _avatar_spiral_brainrot(rng, size):
+    """Eyes are literal spirals, mouth says a brainrot phrase."""
+    h = rng.random()
+    bg = _hsv(h, 0.6, 0.4)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    face_r = int(size * 0.36)
+    draw.ellipse([m-face_r, m-face_r+4, m+face_r, m+face_r+4],
+                 fill=_hsv(h, 0.2, 0.9))
+    for ex_off in (-int(size*0.14), int(size*0.14)):
+        ecx = m + ex_off
+        ecy = m - int(size * 0.06)
+        spiral_col = _hsv((h + 0.5) % 1.0, 0.9, 0.9)
+        for angle_deg in range(0, 720, 8):
+            a = math.radians(angle_deg)
+            r = angle_deg / 720.0 * size // 8
+            sx = ecx + int(math.cos(a) * r)
+            sy = ecy + int(math.sin(a) * r)
+            draw.ellipse([sx-1, sy-1, sx+1, sy+1], fill=spiral_col)
+    phrase = rng.choice(_BRAINROT_PHRASES)
+    pf = _get_font(max(6, size // 9))
+    my = m + int(size * 0.14)
+    _draw_text_centered(draw, phrase, pf, m, my,
+                        fill=(255, 255, 255, 255), outline=(0,0,0,180))
+    return img
+
+def _avatar_deep_fried(rng, size):
+    """Looks like a deep-fried meme — oversaturated, glowing eyes, B emoji."""
+    h = rng.random()
+    bg = _hsv(h, 1.0, 1.0)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for _ in range(rng.randint(80, 200)):
+        px = rng.randint(0, size-1)
+        py = rng.randint(0, size-1)
+        if math.hypot(px - m, py - m) < size // 2:
+            nc = (rng.randint(180, 255), rng.randint(0, 100), 0, rng.randint(50, 150))
+            draw.point((px, py), fill=nc)
+    for ex in (m - int(size*0.14), m + int(size*0.14)):
+        ey = m - int(size * 0.06)
+        for gr in range(15, 0, -3):
+            gc = (255, 255, 255, int(40 * gr / 15))
+            draw.ellipse([ex-gr, ey-gr, ex+gr, ey+gr], fill=gc)
+        draw.ellipse([ex-4, ey-4, ex+4, ey+4], fill=(255, 0, 0, 255))
+    mouth_r = int(size * 0.12)
+    my = m + int(size * 0.12)
+    draw.ellipse([m - mouth_r, my - mouth_r//2, m + mouth_r, my + mouth_r],
+                 fill=(40, 0, 0, 255))
+    word = rng.choice(["🅱️", "B", "FR", "💀", "NAH", "BRO"])
+    wf = _get_font(max(8, size // 5))
+    _draw_text_centered(draw, word, wf, m, m + int(size * 0.32),
+                        fill=(255, 255, 0, 255), outline=(255, 0, 0, 200))
+    return img
+
+def _avatar_skull_meme(rng, size):
+    """Giant skull face with various expressions."""
+    bg_style = rng.choice(["dark", "red", "purple", "void"])
+    bg_colors = {"dark": (15,10,20), "red": (60,5,5), "purple": (30,10,50), "void": (0,0,0)}
+    bg = bg_colors[bg_style] + (255,)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    skull_col = (240, 235, 220, 255)
+    skull_r = int(size * 0.33)
+    draw.ellipse([m - skull_r, m - skull_r - 3, m + skull_r, m + skull_r//2 + 10], fill=skull_col)
+    jaw_w = int(skull_r * 0.75)
+    jaw_h = int(skull_r * 0.4)
+    draw.rounded_rectangle([m - jaw_w, m + skull_r//4, m + jaw_w, m + skull_r//4 + jaw_h],
+                           radius=5, fill=skull_col)
+    sock_r = int(skull_r * 0.3)
+    ey = m - int(size * 0.04)
+    eye_glow = rng.choice([(255,0,0), (0,255,0), (255,0,255), (0,200,255), (255,255,0)])
+    for ex in (m - int(skull_r * 0.4), m + int(skull_r * 0.4)):
+        draw.ellipse([ex - sock_r, ey - sock_r, ex + sock_r, ey + sock_r], fill=bg[:3])
+        gr = sock_r // 3
+        draw.ellipse([ex - gr, ey - gr, ex + gr, ey + gr], fill=eye_glow)
+    draw.polygon([(m, m + skull_r//6), (m - 4, m + skull_r//3), (m + 4, m + skull_r//3)],
+                 fill=bg[:3])
+    teeth_y = m + skull_r//4
+    teeth_count = rng.randint(4, 8)
+    tooth_w = jaw_w * 2 // teeth_count
+    for i in range(teeth_count):
+        tx = m - jaw_w + i * tooth_w + 2
+        draw.rectangle([tx, teeth_y, tx + tooth_w - 3, teeth_y + jaw_h - 3],
+                       outline=bg[:3], width=1, fill=skull_col)
+    if rng.random() < 0.6:
+        word = rng.choice(["DEAD", "💀💀💀", "RIP", "COOKED", "NAHHH", "IM DEAD"])
+        wf = _get_font(max(6, size // 9))
+        _draw_text_centered(draw, word, wf, m, size - 14,
+                            fill=(255, 80, 80, 255), outline=(0,0,0,150))
+    return img
+
+def _avatar_crying_floods(rng, size):
+    """Face absolutely FLOODING with tears."""
+    h = rng.uniform(0.55, 0.65)
+    bg = _hsv(h, 0.4, 0.3)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    face_r = int(size * 0.35)
+    draw.ellipse([m-face_r, m-face_r+5, m+face_r, m+face_r+5],
+                 fill=_hsv(0.08, 0.25, 0.9))
+    for ex_off in (-int(size*0.12), int(size*0.12)):
+        ecx = m + ex_off
+        ecy = m - int(size * 0.05)
+        draw.arc([ecx - 8, ecy - 4, ecx + 8, ecy + 8], start=200, end=340,
+                 fill=(30, 30, 30, 255), width=max(2, size//18))
+    tear_col = (100, 180, 255, 200)
+    for ex_off in (-int(size*0.12), int(size*0.12)):
+        ecx = m + ex_off
+        ecy = m - int(size * 0.02)
+        stream_w = rng.randint(4, 8)
+        for stream in range(rng.randint(2, 4)):
+            pts = []
+            sx = ecx + rng.randint(-5, 5)
+            for j in range(10):
+                ty = ecy + j * (size // 10)
+                tx = sx + int(math.sin(j * 0.8 + stream) * 4)
+                pts.append((tx, ty))
+            if len(pts) >= 2:
+                draw.line(pts, fill=tear_col, width=stream_w)
+    mw = int(size * 0.15)
+    my = m + int(size * 0.15)
+    draw.arc([m - mw, my, m + mw, my + mw], start=200, end=340,
+             fill=(60, 30, 20, 220), width=max(2, size//14))
+    word = rng.choice(["BRO 😭", "NAH", "WHY", "HELP", "STOP", "💀"])
+    wf = _get_font(max(6, size // 8))
+    _draw_text_centered(draw, word, wf, m, m + int(size * 0.33),
+                        fill=(255, 255, 255, 230), outline=(0,0,0,150))
+    return img
+
+def _avatar_gigachad(rng, size):
+    """The chad face — massive jaw, tiny eyes, absolute unit."""
+    bg = (rng.randint(20, 40), rng.randint(15, 35), rng.randint(30, 50), 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    jaw_col = (rng.randint(180, 220), rng.randint(150, 190), rng.randint(120, 160), 255)
+    draw.polygon([
+        (m - int(size*0.2), m - int(size*0.3)),
+        (m + int(size*0.2), m - int(size*0.3)),
+        (m + int(size*0.35), m + int(size*0.15)),
+        (m + int(size*0.3), m + int(size*0.35)),
+        (m, m + int(size*0.38)),
+        (m - int(size*0.3), m + int(size*0.35)),
+        (m - int(size*0.35), m + int(size*0.15)),
+    ], fill=jaw_col)
+    er = max(2, size // 22)
+    ey = m - int(size * 0.1)
+    for ex in (m - int(size*0.12), m + int(size*0.12)):
+        draw.rectangle([ex - er*2, ey - er//2, ex + er*2, ey + er//2],
+                       fill=(20, 20, 20, 255))
+    mw = int(size * 0.12)
+    my = m + int(size * 0.08)
+    draw.line([(m - mw, my), (m + mw, my + 2)], fill=(60, 40, 30, 200),
+              width=max(2, size//18))
+    word = rng.choice(["SIGMA", "CHAD", "ALPHA", "W", "MOGGING", "TOP G"])
+    wf = _get_font(max(7, size // 7))
+    _draw_text_centered(draw, word, wf, m, size - 14,
+                        fill=(255, 215, 0, 255), outline=(0,0,0,200))
+    return img
+
+def _avatar_ohio_boss(rng, size):
+    """Menacing aura, glowing eyes, 'OHIO' stamped on it."""
+    bg = (5, 0, 15, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for i in range(5):
+        r = int(size * 0.45 - i * 6)
+        aura_col = (rng.randint(100, 200), 0, rng.randint(100, 200), rng.randint(30, 80))
+        if r > 5:
+            draw.ellipse([m-r, m-r, m+r, m+r], outline=aura_col, width=3)
+    sil_r = int(size * 0.28)
+    draw.ellipse([m - sil_r, m - sil_r, m + sil_r, m + sil_r//2],
+                 fill=(20, 10, 30, 255))
+    eye_col = rng.choice([(255, 0, 0), (255, 50, 0), (200, 0, 255)])
+    for ex in (m - int(size*0.10), m + int(size*0.10)):
+        ey = m - int(size * 0.05)
+        for gr in range(10, 0, -2):
+            gc = tuple(min(255, c // (12-gr) + 20) for c in eye_col) + (50,)
+            draw.ellipse([ex-gr, ey-gr, ex+gr, ey+gr], fill=gc)
+        draw.ellipse([ex-3, ey-3, ex+3, ey+3], fill=eye_col)
+    ohio_f = _get_font(max(10, size // 4))
+    _draw_text_centered(draw, "OHIO", ohio_f, m, m + int(size*0.25),
+                        fill=(255, 0, 0, 255), outline=(0,0,0,200))
+    sub = rng.choice(["FINAL BOSS", "LVL 999", "DANGER", "RUN"])
+    sf = _get_font(max(6, size // 9))
+    _draw_text_centered(draw, sub, sf, m, m + int(size*0.38),
+                        fill=(200, 200, 200, 180), outline=(0,0,0,100))
+    return img
+
+def _avatar_skibidi_face(rng, size):
+    """A toilet with a face sticking out — the iconic skibidi."""
+    bg = (rng.randint(30, 60), rng.randint(30, 60), rng.randint(40, 70), 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    bowl_col = (230, 230, 240, 255)
+    draw.ellipse([m - int(size*0.3), m + int(size*0.05),
+                  m + int(size*0.3), m + int(size*0.42)], fill=bowl_col,
+                 outline=(200, 200, 210), width=2)
+    draw.rounded_rectangle([m - int(size*0.18), m - int(size*0.05),
+                            m + int(size*0.18), m + int(size*0.12)],
+                           radius=3, fill=bowl_col, outline=(200, 200, 210), width=2)
+    draw.line([(m + int(size*0.18), m + int(size*0.02)),
+               (m + int(size*0.26), m + int(size*0.02))],
+              fill=(180, 180, 190), width=3)
+    head_r = int(size * 0.16)
+    hx, hy = m, m - int(size * 0.18)
+    head_col = (rng.randint(200, 240), rng.randint(170, 210), rng.randint(140, 180), 255)
+    draw.ellipse([hx - head_r, hy - head_r, hx + head_r, hy + head_r], fill=head_col)
+    for eoff in (-head_r//3, head_r//3):
+        draw.ellipse([hx + eoff - 3, hy - 3, hx + eoff + 3, hy + 3], fill=(30, 30, 30))
+    draw.ellipse([hx - head_r//4, hy + head_r//4, hx + head_r//4, hy + head_r//2],
+                 fill=(60, 20, 10, 255))
+    sf = _get_font(max(7, size // 7))
+    _draw_text_centered(draw, "SKIBIDI", sf, m, size - 12,
+                        fill=(255, 255, 100, 255), outline=(0,0,0,180))
+    return img
+
+def _avatar_text_expression(rng, size):
+    """The entire face IS a text expression like (o_o) or (T_T)."""
+    h = rng.random()
+    bg = _hsv(h, 0.7, 0.5)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    expr = rng.choice(_FACE_EXPRESSIONS)
+    for fs in range(size // 2, 8, -2):
+        font = _get_font(fs)
+        bbox = draw.textbbox((0, 0), expr, font=font)
+        if bbox[2] - bbox[0] < size * 0.80:
+            break
+    _draw_text_centered(draw, expr, font, m, m,
+                        fill=(255, 255, 255, 255), outline=(0, 0, 0, 200))
+    label = rng.choice(["mood", "literally me", "me rn", "real", "fr", "valid"])
+    lf = _get_font(max(6, size // 10))
+    _draw_text_centered(draw, label, lf, m, m + int(size * 0.32),
+                        fill=(200, 200, 200, 180), outline=(0,0,0,80))
+    return img
+
+def _avatar_glowing_brain(rng, size):
+    """Giant glowing brain — the galaxy brain meme in avatar form."""
+    bg = (5, 5, 20, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    brain_col = (255, 180, 200, 255)
+    br = int(size * 0.3)
+    draw.ellipse([m - br, m - br + 5, m + br, m + br - 5], fill=brain_col)
+    draw.ellipse([m - br + 5, m - br, m - 5, m + br//2], fill=brain_col)
+    draw.ellipse([m + 5, m - br, m + br - 5, m + br//2], fill=brain_col)
+    wrinkle_col = (220, 140, 160, 200)
+    for _ in range(rng.randint(6, 12)):
+        wx = m + rng.randint(-br + 8, br - 8)
+        wy = m + rng.randint(-br + 8, br - 8)
+        draw.arc([wx - 12, wy - 12, wx + 12, wy + 12],
+                 start=rng.randint(0, 180), end=rng.randint(200, 360),
+                 fill=wrinkle_col, width=2)
+    glow_col = rng.choice(["blue", "purple", "gold", "cyan"])
+    glow_colors = {"blue": (50,100,255), "purple": (180,50,255),
+                   "gold": (255,215,50), "cyan": (0,255,255)}
+    gc = glow_colors[glow_col]
+    for gr in range(br + 15, br, -2):
+        alpha = int(60 * (gr - br) / 15)
+        draw.ellipse([m-gr, m-gr, m+gr, m+gr],
+                     outline=gc + (min(255, alpha),), width=2)
+    word = rng.choice(["GALAXY BRAIN", "200 IQ", "ASCENDED", "ENLIGHTENED", "BIG BRAIN"])
+    wf = _get_font(max(6, size // 9))
+    _draw_text_centered(draw, word, wf, m, size - 12,
+                        fill=gc + (255,) if len(gc) == 3 else gc, outline=(0,0,0,180))
+    return img
+
+def _avatar_unhinged(rng, size):
+    """Completely unhinged — misaligned features, random colors, chaos."""
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    bg = (rng.randint(0, 255), rng.randint(0, 255), rng.randint(0, 255), 255)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    le_x = m - rng.randint(5, size//3)
+    le_y = m - rng.randint(size//6, size//3)
+    le_r = rng.randint(3, size//6)
+    le_col = (rng.randint(0,255), rng.randint(0,255), rng.randint(0,255), 255)
+    draw.ellipse([le_x-le_r, le_y-le_r, le_x+le_r, le_y+le_r], fill=le_col)
+    re_x = m + rng.randint(0, size//4)
+    re_y = m + rng.randint(0, size//5)
+    re_r = rng.randint(2, size//8)
+    re_col = (rng.randint(0,255), rng.randint(0,255), rng.randint(0,255), 255)
+    draw.ellipse([re_x-re_r, re_y-re_r, re_x+re_r, re_y+re_r], fill=re_col)
+    mx = m + rng.randint(-size//4, size//4)
+    my = m + rng.randint(-size//6, size//3)
+    mouth_type = rng.choice(["circle", "line", "zigzag", "text"])
+    mc = (rng.randint(0,255), rng.randint(0,255), rng.randint(0,255), 255)
+    if mouth_type == "circle":
+        mr = rng.randint(3, size//6)
+        draw.ellipse([mx-mr, my-mr//2, mx+mr, my+mr], fill=mc)
+    elif mouth_type == "line":
+        draw.line([(mx - size//5, my), (mx + size//5, my)], fill=mc, width=rng.randint(2, 6))
+    elif mouth_type == "zigzag":
+        pts = [(mx + rng.randint(-20, 20), my + rng.randint(-10, 10)) for _ in range(6)]
+        if len(pts) >= 2:
+            draw.line(pts, fill=mc, width=2)
+    else:
+        word = rng.choice(["AAAA", "BRUH", "???", "HELP", "NO", "WHAT"])
+        wf = _get_font(max(6, size // 7))
+        draw.text((mx - 15, my), word, font=wf, fill=mc)
+    for _ in range(rng.randint(3, 10)):
+        sx = rng.randint(5, size-5)
+        sy = rng.randint(5, size-5)
+        if math.hypot(sx - m, sy - m) < size//2:
+            sr = rng.randint(2, 8)
+            sc = (rng.randint(0,255), rng.randint(0,255), rng.randint(0,255), rng.randint(100,255))
+            shape = rng.choice(["circle", "rect", "triangle"])
+            if shape == "circle":
+                draw.ellipse([sx-sr, sy-sr, sx+sr, sy+sr], fill=sc)
+            elif shape == "rect":
+                draw.rectangle([sx-sr, sy-sr, sx+sr, sy+sr], fill=sc)
+            else:
+                draw.polygon([(sx, sy-sr), (sx-sr, sy+sr), (sx+sr, sy+sr)], fill=sc)
+    if rng.random() < 0.5:
+        word = rng.choice(["UNHINGED", "DERANGED", "FERAL", "CHAOTIC", "CURSED"])
+        wf = _get_font(max(6, size // 8))
+        _draw_text_centered(draw, word, wf, m, size - 12,
+                            fill=(255,255,255,220), outline=(0,0,0,150))
+    return img
+
+def _avatar_rizz_aura(rng, size):
+    """Sparkling, confident, dripping with aura and rizz energy."""
+    h = rng.uniform(0.05, 0.12)
+    bg = _hsv(h, 0.3, 0.15)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    face_col = _hsv(h, 0.25, 0.8)
+    face_r = int(size * 0.3)
+    draw.ellipse([m-face_r, m-face_r+3, m+face_r, m+face_r+3], fill=face_col)
+    ey = m - int(size * 0.04)
+    for ex in (m - int(size*0.11), m + int(size*0.11)):
+        draw.line([(ex - 6, ey), (ex + 6, ey)], fill=(30, 30, 30), width=3)
+        draw.line([(ex + 4, ey), (ex + 7, ey - 2)], fill=(30, 30, 30), width=2)
+    mw = int(size * 0.14)
+    my = m + int(size * 0.10)
+    draw.arc([m - mw, my - mw//3, m + mw, my + mw//3], start=10, end=170,
+             fill=(60, 30, 20), width=max(2, size//16))
+    draw.arc([m, my - mw//2, m + mw + 5, my + mw//4], start=300, end=360,
+             fill=(60, 30, 20), width=max(2, size//18))
+    sparkle_col = (255, 215, 0, 255)
+    for _ in range(rng.randint(8, 20)):
+        sx = rng.randint(5, size-5)
+        sy = rng.randint(5, size-5)
+        if math.hypot(sx - m, sy - m) < size//2:
+            sr = rng.randint(1, 4)
+            draw.line([(sx-sr, sy), (sx+sr, sy)], fill=sparkle_col, width=1)
+            draw.line([(sx, sy-sr), (sx, sy+sr)], fill=sparkle_col, width=1)
+    word = rng.choice(["+1000 AURA", "W RIZZ", "RIZZ GOD", "UNMATCHED", "+AURA"])
+    wf = _get_font(max(6, size // 8))
+    _draw_text_centered(draw, word, wf, m, m + int(size * 0.33),
+                        fill=(255, 215, 0, 255), outline=(0,0,0,180))
+    return img
+
+def _avatar_caught_4k(rng, size):
+    """Camera flash, surprised face, 'CAUGHT IN 4K' energy."""
+    bg = (255, 255, 255, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    face_col = (rng.randint(200, 240), rng.randint(170, 210), rng.randint(140, 180), 255)
+    face_r = int(size * 0.32)
+    draw.ellipse([m-face_r, m-face_r+5, m+face_r, m+face_r+5], fill=face_col)
+    er = int(size * 0.09)
+    ey = m - int(size * 0.04)
+    for ex in (m - int(size*0.13), m + int(size*0.13)):
+        draw.ellipse([ex-er, ey-er, ex+er, ey+er], fill=(255,255,255))
+        pr = er // 2
+        draw.ellipse([ex-pr, ey-pr, ex+pr, ey+pr], fill=(20,20,20))
+        draw.ellipse([ex-pr+1, ey-pr-1, ex-pr+3, ey-pr+1], fill=(255,255,255))
+    mouth_r = int(size * 0.08)
+    my = m + int(size * 0.14)
+    draw.ellipse([m - mouth_r, my, m + mouth_r, my + int(mouth_r * 1.5)],
+                 fill=(60, 20, 10, 255))
+    flare_col = (255, 255, 200, 150)
+    for i in range(8):
+        angle = i * math.pi / 4
+        x1 = m + int(math.cos(angle) * size * 0.15)
+        y1 = m + int(math.sin(angle) * size * 0.15)
+        x2 = m + int(math.cos(angle) * size * 0.45)
+        y2 = m + int(math.sin(angle) * size * 0.45)
+        draw.line([(x1, y1), (x2, y2)], fill=flare_col, width=1)
+    word = rng.choice(["CAUGHT IN 4K", "4K", "📸📸📸", "EXPOSED", "AYO??"])
+    wf = _get_font(max(6, size // 8))
+    _draw_text_centered(draw, word, wf, m, size - 14,
+                        fill=(255, 0, 0, 255), outline=(255,255,255,200))
+    return img
+
+def _avatar_void_entity(rng, size):
+    """Dark void creature — barely visible, unsettling presence."""
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=(2, 0, 5, 255))
+    m = size // 2
+    inner_r = int(size * 0.35)
+    draw.ellipse([m-inner_r, m-inner_r, m+inner_r, m+inner_r],
+                 fill=(5, 2, 10, 255))
+    eye_col = rng.choice([(255,255,255,80), (200,0,0,60), (0,200,255,70)])
+    for ex in (m - int(size*0.12), m + int(size*0.12)):
+        ey = m - int(size * rng.uniform(0.02, 0.10))
+        er = rng.randint(2, 5)
+        draw.ellipse([ex-er, ey-er, ex+er, ey+er], fill=eye_col)
+    for _ in range(rng.randint(30, 80)):
+        px = rng.randint(0, size-1)
+        py = rng.randint(0, size-1)
+        if math.hypot(px - m, py - m) < size // 2:
+            brightness = rng.randint(5, 25)
+            draw.point((px, py), fill=(brightness, brightness, brightness, 100))
+    word = rng.choice(["VOID", "NULL", "EMPTY", "GONE", "???", "END"])
+    wf = _get_font(max(6, size // 8))
+    _draw_text_centered(draw, word, wf, m, m + int(size * 0.25),
+                        fill=(40, 30, 50, 120), outline=(0,0,0,50))
+    return img
+
+def _avatar_aura_counter(rng, size):
+    """Shows aura points — positive or negative — with colored background."""
+    positive = rng.random() < 0.5
+    if positive:
+        points = f"+{rng.randint(100, 99999)}"
+        h = rng.uniform(0.08, 0.15)
+        text_col = (50, 255, 50, 255)
+    else:
+        points = f"-{rng.randint(100, 99999)}"
+        h = rng.uniform(0.95, 1.05)
+        text_col = (255, 50, 50, 255)
+    bg = _hsv(h, 0.4, 0.15)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    hf = _get_font(max(7, size // 6))
+    _draw_text_centered(draw, "AURA", hf, m, m - int(size * 0.15),
+                        fill=(255, 215, 0, 255), outline=(0,0,0,180))
+    for fs in range(size // 3, 8, -2):
+        font = _get_font(fs)
+        bbox = draw.textbbox((0, 0), points, font=font)
+        if bbox[2] - bbox[0] < size * 0.80:
+            break
+    _draw_text_centered(draw, points, font, m, m + int(size * 0.08),
+                        fill=text_col, outline=(0,0,0,200))
+    if positive:
+        for _ in range(rng.randint(5, 15)):
+            sx = rng.randint(5, size-5)
+            sy = rng.randint(5, size-5)
+            if math.hypot(sx-m, sy-m) < size//2:
+                draw.line([(sx-2, sy), (sx+2, sy)], fill=(255,215,0,200), width=1)
+                draw.line([(sx, sy-2), (sx, sy+2)], fill=(255,215,0,200), width=1)
+    else:
+        for _ in range(rng.randint(3, 8)):
+            fx = rng.randint(m-size//4, m+size//4)
+            fy = rng.randint(m+size//8, size-5)
+            fr = rng.randint(3, 8)
+            draw.ellipse([fx-fr, fy-fr, fx+fr, fy+fr], fill=(255, 50, 0, 150))
+    return img
+
+def _avatar_mewing(rng, size):
+    """The mewing face — closed mouth, sharp jawline, determined look."""
+    h = rng.uniform(0.05, 0.10)
+    bg = _hsv(h, 0.3, 0.2)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    jaw_col = (rng.randint(190, 230), rng.randint(160, 200), rng.randint(130, 170), 255)
+    draw.polygon([
+        (m, m - int(size*0.32)),
+        (m + int(size*0.30), m - int(size*0.10)),
+        (m + int(size*0.28), m + int(size*0.20)),
+        (m, m + int(size*0.35)),
+        (m - int(size*0.28), m + int(size*0.20)),
+        (m - int(size*0.30), m - int(size*0.10)),
+    ], fill=jaw_col)
+    ey = m - int(size * 0.06)
+    for ex in (m - int(size*0.10), m + int(size*0.10)):
+        draw.line([(ex - 6, ey + 1), (ex + 6, ey - 1)], fill=(30, 30, 30), width=3)
+    my = m + int(size * 0.10)
+    draw.line([(m - int(size*0.08), my), (m + int(size*0.08), my)],
+              fill=(jaw_col[0]-30, jaw_col[1]-30, jaw_col[2]-30), width=2)
+    word = rng.choice(["MEWING", "MEW", "JAWLINE", "LOOKSMAX", "BONESMASH"])
+    wf = _get_font(max(6, size // 7))
+    _draw_text_centered(draw, word, wf, m, m + int(size * 0.33),
+                        fill=(255, 255, 255, 220), outline=(0,0,0,180))
+    if rng.random() < 0.5:
+        streak = f"DAY {rng.randint(1, 365)}"
+        sf = _get_font(max(6, size // 10))
+        _draw_text_centered(draw, streak, sf, m, m - int(size * 0.32),
+                            fill=(255, 200, 50, 200), outline=(0,0,0,100))
+    return img
+
+def _avatar_sus_imposter(rng, size):
+    """Among Us inspired — body shape with SUS energy."""
+    h = rng.random()
+    body_col = _hsv(h, 0.85, 0.85)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=(15, 15, 25, 255))
+    m = size // 2
+    p = int(size * 0.26)
+    draw.rounded_rectangle([m-p, m-p+8, m+p, m+p+12], radius=p//2, fill=body_col)
+    visor_y = m - p//3
+    draw.rounded_rectangle([m-p+6, visor_y, m+p//4, visor_y+p//2],
+                           radius=4, fill=(180, 220, 255))
+    draw.rounded_rectangle([m-p+6, visor_y, m+p//4, visor_y+p//2],
+                           radius=4, outline=(120, 160, 200), width=2)
+    draw.rounded_rectangle([m+p-2, m-p//4, m+p+10, m+p//3+6],
+                           radius=3, fill=body_col)
+    leg_w = p // 3
+    draw.rounded_rectangle([m-p+4, m+p+2, m-p+4+leg_w, m+p+14], radius=2, fill=body_col)
+    draw.rounded_rectangle([m+p-4-leg_w, m+p+2, m+p-4, m+p+14], radius=2, fill=body_col)
+    if rng.random() < 0.4:
+        for _ in range(rng.randint(3, 8)):
+            bx = m + rng.randint(-p, p)
+            by = m + rng.randint(-p, p+10)
+            br = rng.randint(2, 6)
+            draw.ellipse([bx-br, by-br, bx+br, by+br], fill=(200, 0, 0, 180))
+    word = rng.choice(["SUS", "IMPOSTER", "VENT", "SUSSY", "SUSSY BAKA", "EJECT"])
+    wf = _get_font(max(6, size // 7))
+    _draw_text_centered(draw, word, wf, m, size - 12,
+                        fill=(255, 50, 50, 255), outline=(0,0,0,180))
+    return img
+
+def _avatar_loading_brainrot(rng, size):
+    """Looks like a loading screen but for brainrot."""
+    bg = (20, 18, 35, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    bar_w = int(size * 0.6)
+    bar_h = max(6, size // 10)
+    bar_x = m - bar_w // 2
+    bar_y = m + int(size * 0.05)
+    draw.rounded_rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h],
+                           radius=3, fill=(40, 35, 60))
+    progress = rng.uniform(0.3, 0.95)
+    fill_w = int(bar_w * progress)
+    bar_col = _hsv(rng.random(), 0.9, 1.0)
+    draw.rounded_rectangle([bar_x, bar_y, bar_x + fill_w, bar_y + bar_h],
+                           radius=3, fill=bar_col)
+    pct = f"{int(progress * 100)}%"
+    pf = _get_font(max(8, size // 5))
+    _draw_text_centered(draw, pct, pf, m, m - int(size * 0.15),
+                        fill=(255, 255, 255, 255), outline=(0,0,0,200))
+    text = rng.choice([
+        "LOADING BRAINROT...", "INSTALLING SIGMA...", "DOWNLOADING RIZZ...",
+        "BUFFERING OHIO...", "COMPILING SKIBIDI...", "UPDATING NPC.exe...",
+        "LOADING AURA...", "MEWING.dll LOADED", "GYATT LOADING...",
+    ])
+    tf = _get_font(max(6, size // 10))
+    _draw_text_centered(draw, text, tf, m, m + int(size * 0.22),
+                        fill=(150, 150, 150, 200), outline=(0,0,0,80))
+    for i in range(4):
+        angle = rng.uniform(0, 2*math.pi) + i * math.pi/2
+        dx = m + int(math.cos(angle) * size * 0.08)
+        dy = m + int(math.sin(angle) * size * 0.08) + int(size * 0.35)
+        alpha = 255 - i * 50
+        draw.ellipse([dx-2, dy-2, dx+2, dy+2], fill=(200, 200, 200, max(50, alpha)))
+    return img
+
+def _avatar_ratio_tombstone(rng, size):
+    """A tombstone that says RATIO — you got ratioed to death."""
+    bg = (30, 35, 25, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    ground_y = m + int(size * 0.25)
+    draw.rectangle([0, ground_y, size, size], fill=(50, 60, 40, 255))
+    stone_col = (160, 155, 150, 255)
+    sw = int(size * 0.30)
+    sh = int(size * 0.45)
+    stone_top = ground_y - sh
+    draw.rounded_rectangle([m - sw, stone_top, m + sw, ground_y + 5],
+                           radius=sw // 2, fill=stone_col)
+    draw.rectangle([m - sw, ground_y - sh//2, m + sw, ground_y + 5], fill=stone_col)
+    rip_f = _get_font(max(7, size // 7))
+    _draw_text_centered(draw, "RIP", rip_f, m, stone_top + sh // 5,
+                        fill=(50, 40, 35, 255), outline=stone_col)
+    cause = rng.choice(["RATIO", "L + RATIO", "COOKED", "SKILL ISSUE", "NO RIZZ",
+                        "0 AURA", "DOWN BAD", "TOUCH GRASS", "COPE", "GG"])
+    cf = _get_font(max(6, size // 9))
+    _draw_text_centered(draw, cause, cf, m, stone_top + sh // 2,
+                        fill=(70, 60, 55, 255), outline=stone_col)
+    if rng.random() < 0.5:
+        for fx_off in (-sw - 5, sw + 5):
+            for fy_off in range(0, 15, 5):
+                fc = rng.choice([(255, 80, 80), (255, 200, 50), (200, 100, 255)])
+                draw.ellipse([m + fx_off - 3, ground_y - fy_off - 3,
+                              m + fx_off + 3, ground_y - fy_off + 3], fill=fc)
+    return img
+
+def _avatar_backrooms(rng, size):
+    """Yellow wallpaper, fluorescent lighting, liminal dread."""
+    bg = (rng.randint(160, 190), rng.randint(155, 175), rng.randint(80, 110), 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    line_col = (bg[0] - 15, bg[1] - 15, bg[2] - 10, 100)
+    for lx in range(0, size, size // 8):
+        draw.line([(lx, 0), (lx, size)], fill=line_col, width=1)
+    draw.rectangle([m - size//3, 8, m + size//3, 12], fill=(255, 255, 220, 180))
+    entity_style = rng.choice(["smile", "tall", "blob", "eyes_only"])
+    if entity_style == "smile":
+        mw = int(size * 0.20)
+        my = m + int(size * 0.05)
+        draw.arc([m - mw, my - mw//3, m + mw, my + mw],
+                 start=10, end=170, fill=(20, 15, 10, 200), width=3)
+    elif entity_style == "tall":
+        draw.rectangle([m - 5, m - int(size*0.3), m + 5, m + int(size*0.3)],
+                       fill=(15, 10, 10, 180))
+        draw.ellipse([m - 8, m - int(size*0.35), m + 8, m - int(size*0.22)],
+                     fill=(15, 10, 10, 180))
+    elif entity_style == "blob":
+        draw.ellipse([m - size//5, m - size//6, m + size//5, m + size//4],
+                     fill=(20, 15, 10, 120))
+    else:
+        for ex in (m - int(size*0.10), m + int(size*0.10)):
+            draw.ellipse([ex - 3, m - 3, ex + 3, m + 3], fill=(255, 255, 200, 150))
+    level = rng.choice(["LEVEL 0", "LEVEL 9", "LEVEL !", "LEVEL 94", "THE POOLROOMS",
+                        "LEVEL 666", "LEVEL NULL", "LEVEL FUN =)"])
+    lf = _get_font(max(6, size // 9))
+    _draw_text_centered(draw, level, lf, m, size - 14,
+                        fill=(80, 70, 50, 220), outline=(0, 0, 0, 80))
+    return img
+
+def _avatar_touch_grass(rng, size):
+    """Green nature scene with 'TOUCH GRASS' urgent warning."""
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    for row in range(size):
+        t = row / size
+        r = int(100 + 50 * t)
+        g = int(180 + 50 * t)
+        b = int(255 - 80 * t)
+        draw.line([(0, row), (size, row)], fill=(min(255,r), min(255,g), min(255,b), 255))
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size-1, size-1], fill=255)
+    img.putalpha(mask)
+    draw = ImageDraw.Draw(img)
+    m = size // 2
+    ground_y = m + int(size * 0.15)
+    draw.rectangle([0, ground_y, size, size], fill=(60, 140, 40, 255))
+    for _ in range(rng.randint(15, 30)):
+        gx = rng.randint(5, size - 5)
+        if math.hypot(gx - m, ground_y - m) < size // 2:
+            gc = (rng.randint(40, 80), rng.randint(140, 200), rng.randint(20, 60), 255)
+            blade_h = rng.randint(5, 18)
+            lean = rng.randint(-5, 5)
+            draw.line([(gx, ground_y), (gx + lean, ground_y - blade_h)], fill=gc, width=2)
+    draw.ellipse([size - 30, 8, size - 10, 28], fill=(255, 230, 50, 255))
+    wf = _get_font(max(8, size // 5))
+    _draw_text_centered(draw, "TOUCH", wf, m, m - int(size * 0.18),
+                        fill=(255, 50, 50, 255), outline=(255, 255, 255, 200))
+    _draw_text_centered(draw, "GRASS", wf, m, m + int(size * 0.02),
+                        fill=(255, 50, 50, 255), outline=(255, 255, 255, 200))
+    sub = rng.choice(["NOW", "PLEASE", "BRO", "IMMEDIATELY", "URGENT", "SERIOUSLY"])
+    sf = _get_font(max(6, size // 8))
+    _draw_text_centered(draw, sub, sf, m, m + int(size * 0.20),
+                        fill=(255, 255, 0, 255), outline=(0, 0, 0, 180))
+    return img
+
+def _avatar_error_screen(rng, size):
+    """Blue screen of death but brainrot themed."""
+    style = rng.choice(["bsod", "red", "green"])
+    bg_colors = {"bsod": (0, 0, 170), "red": (170, 0, 0), "green": (0, 100, 0)}
+    bg = bg_colors[style] + (255,)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    sf = _get_font(max(16, size // 3))
+    _draw_text_centered(draw, ":(", sf, m, m - int(size * 0.15),
+                        fill=(255, 255, 255, 255), outline=bg[:3])
+    errors = [
+        "BRAINROT.exe\nhas stopped", "SIGMA_OVERFLOW\nFATAL ERROR",
+        "RIZZ.dll\nNOT FOUND", "OHIO_EXCEPTION\nCRITICAL",
+        "SKIBIDI_FAULT\nSYSTEM HALT", "NPC_MODE\nACTIVATED",
+        "AURA_UNDERFLOW\nSEGFAULT", "GYATT_BUFFER\nOVERFLOW",
+    ]
+    error = rng.choice(errors)
+    ef = _get_font(max(6, size // 11))
+    lines = error.split("\n")
+    for i, line in enumerate(lines):
+        _draw_text_centered(draw, line, ef, m, m + int(size * 0.08) + i * 14,
+                            fill=(255, 255, 255, 220), outline=bg[:3])
+    code = f"0x{rng.randint(0, 0xFFFFFF):06X}"
+    cf = _get_font(max(6, size // 12))
+    _draw_text_centered(draw, code, cf, m, size - 16,
+                        fill=(180, 180, 180, 180), outline=bg[:3])
+    return img
+
+def _avatar_tier_list(rng, size):
+    """Shows a tier ranking — S, A, B, C, D, F tier."""
+    tier = rng.choice(["S", "S+", "A", "B", "C", "D", "F", "S++", "Z"])
+    tier_colors = {
+        "S++": (255, 50, 255), "S+": (255, 215, 0), "S": (255, 200, 50),
+        "A": (100, 255, 100), "B": (100, 200, 255), "C": (255, 200, 100),
+        "D": (255, 150, 80), "F": (255, 50, 50), "Z": (200, 0, 255),
+    }
+    tc = tier_colors.get(tier, (200, 200, 200))
+    bg = (20, 18, 30, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    strip_col = tc + (80,)
+    draw.rounded_rectangle([8, m - int(size*0.18), size - 8, m + int(size*0.18)],
+                           radius=6, fill=strip_col)
+    draw.rounded_rectangle([8, m - int(size*0.18), size - 8, m + int(size*0.18)],
+                           radius=6, outline=tc, width=2)
+    tf = _get_font(max(14, int(size * 0.5)))
+    _draw_text_centered(draw, tier, tf, m, m,
+                        fill=tc + (255,), outline=(0, 0, 0, 220))
+    label = rng.choice(["TIER", "RANK", "GOATED", "CERTIFIED", "OFFICIAL"])
+    lf = _get_font(max(6, size // 9))
+    _draw_text_centered(draw, label, lf, m, m + int(size * 0.30),
+                        fill=(180, 180, 180, 200), outline=(0, 0, 0, 100))
+    header = rng.choice(["BRAINROT", "SIGMA", "RIZZ", "AURA", "MEME"])
+    hf = _get_font(max(6, size // 8))
+    _draw_text_centered(draw, f"{header} TIER", hf, m, m - int(size * 0.30),
+                        fill=(255, 255, 255, 220), outline=(0, 0, 0, 150))
+    return img
+
+def _avatar_inverted_face(rng, size):
+    """Face with features upside down — mouth on top, eyes at bottom."""
+    h = rng.random()
+    bg = _hsv(h, 0.5, 0.6)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    face_r = int(size * 0.34)
+    face_col = _hsv(h, 0.15, 0.9)
+    draw.ellipse([m-face_r, m-face_r+4, m+face_r, m+face_r+4], fill=face_col)
+    mw = int(size * 0.16)
+    my_top = m - int(size * 0.10)
+    draw.arc([m - mw, my_top - mw//3, m + mw, my_top + mw//2],
+             start=10, end=170, fill=(80, 40, 20, 220), width=max(2, size//14))
+    ey_bot = m + int(size * 0.12)
+    er = int(size * 0.06)
+    for ex in (m - int(size*0.12), m + int(size*0.12)):
+        draw.ellipse([ex-er, ey_bot-er, ex+er, ey_bot+er], fill=(30, 30, 30, 255))
+        draw.ellipse([ex-er//3, ey_bot-er//3, ex+er//3, ey_bot+er//3],
+                     fill=(255, 255, 255, 255))
+    word = rng.choice(["CURSED", "WRONG", "INVERTED", "GLITCHED", "BROKEN"])
+    wf = _get_font(max(6, size // 8))
+    _draw_text_centered(draw, word, wf, m, size - 12,
+                        fill=(255, 100, 100, 255), outline=(0, 0, 0, 150))
+    return img
+
+def _avatar_health_bar(rng, size):
+    """Shows a health/HP bar that's almost empty."""
+    bg = (25, 20, 35, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    name = rng.choice(["BRAINROT", "SIGMA", "SKIBIDI", "NPC", "OHIO", "RIZZ"])
+    nf = _get_font(max(7, size // 7))
+    _draw_text_centered(draw, name, nf, m, m - int(size * 0.22),
+                        fill=(255, 255, 255, 255), outline=(0, 0, 0, 180))
+    bar_w = int(size * 0.65)
+    bar_h = max(8, size // 8)
+    bar_x = m - bar_w // 2
+    bar_y = m - int(size * 0.05)
+    draw.rounded_rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h],
+                           radius=3, fill=(60, 20, 20))
+    draw.rounded_rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + bar_h],
+                           radius=3, outline=(100, 30, 30), width=2)
+    hp_pct = rng.uniform(0.02, 0.15)
+    fill_w = max(3, int(bar_w * hp_pct))
+    draw.rounded_rectangle([bar_x + 2, bar_y + 2, bar_x + fill_w, bar_y + bar_h - 2],
+                           radius=2, fill=(255, 50, 50))
+    max_hp = rng.choice([100, 999, 9999])
+    cur_hp = max(1, int(max_hp * hp_pct))
+    hp_text = f"{cur_hp}/{max_hp}"
+    hf = _get_font(max(6, size // 10))
+    _draw_text_centered(draw, hp_text, hf, m, bar_y + bar_h // 2,
+                        fill=(255, 255, 255, 220), outline=(0, 0, 0, 150))
+    status = rng.choice(["CRITICAL", "1 HP", "ALMOST DEAD", "COOKED",
+                         "GG", "ONE SHOT", "CRYING RN"])
+    sf = _get_font(max(6, size // 9))
+    _draw_text_centered(draw, status, sf, m, m + int(size * 0.18),
+                        fill=(255, 80, 80, 255), outline=(0, 0, 0, 120))
+    level = f"LVL {rng.randint(1, 999)}"
+    lf = _get_font(max(6, size // 10))
+    _draw_text_centered(draw, level, lf, m, m + int(size * 0.32),
+                        fill=(200, 200, 200, 180), outline=(0, 0, 0, 80))
+    return img
+
+def _avatar_dual_personality(rng, size):
+    """Half angel, half demon split face."""
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    m = size // 2
+    draw.pieslice([0, 0, size-1, size-1], start=90, end=270, fill=(220, 230, 255, 255))
+    draw.pieslice([0, 0, size-1, size-1], start=270, end=90, fill=(30, 10, 20, 255))
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size-1, size-1], fill=255)
+    img.putalpha(mask)
+    draw = ImageDraw.Draw(img)
+    ey = m - int(size * 0.06)
+    draw.ellipse([m - int(size*0.22) - 4, ey - 4, m - int(size*0.22) + 4, ey + 4],
+                 fill=(100, 150, 255, 255))
+    draw.ellipse([m + int(size*0.22) - 4, ey - 4, m + int(size*0.22) + 4, ey + 4],
+                 fill=(255, 0, 0, 255))
+    draw.arc([m - int(size*0.3), m - int(size*0.38), m - int(size*0.05), m - int(size*0.28)],
+             start=0, end=360, fill=(255, 215, 0, 200), width=2)
+    draw.polygon([(m + int(size*0.15), m - int(size*0.30)),
+                  (m + int(size*0.10), m - int(size*0.42)),
+                  (m + int(size*0.22), m - int(size*0.30))],
+                 fill=(200, 0, 0, 255))
+    draw.line([(m, 5), (m, size - 5)], fill=(150, 150, 150, 150), width=2)
+    mw = int(size * 0.12)
+    my = m + int(size * 0.12)
+    draw.arc([m - mw, my - mw//3, m, my + mw//2], start=10, end=170,
+             fill=(100, 100, 200, 220), width=2)
+    draw.arc([m, my, m + mw, my + mw], start=200, end=340,
+             fill=(200, 50, 50, 220), width=2)
+    return img
+
+def _avatar_glitch_text(rng, size):
+    """Multiple overlapping shifted text creating glitch effect."""
+    h = rng.random()
+    bg = _hsv(h, 0.3, 0.12)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    word = rng.choice(_BRAINROT_WORDS[:30])
+    font = _get_font(max(8, size // 5))
+    offsets = [(-3, -2, (255, 0, 0, 150)),
+               (3, 1, (0, 255, 0, 150)),
+               (0, 3, (0, 0, 255, 150)),
+               (-1, -3, (255, 255, 0, 100)),
+               (2, -1, (255, 0, 255, 100))]
+    for ox, oy, col in offsets:
+        _draw_text_centered(draw, word, font, m + ox, m + oy,
+                            fill=col, outline=(0, 0, 0, 30))
+    _draw_text_centered(draw, word, font, m, m,
+                        fill=(255, 255, 255, 255), outline=(0, 0, 0, 180))
+    for y in range(0, size, 4):
+        draw.line([(0, y), (size, y)], fill=(0, 0, 0, 30), width=1)
+    for _ in range(rng.randint(2, 6)):
+        gy = rng.randint(0, size - 1)
+        gh = rng.randint(1, 4)
+        goff = rng.randint(-10, 10)
+        gc = rng.choice([(255, 0, 0, 100), (0, 255, 0, 100), (0, 0, 255, 100)])
+        draw.rectangle([max(0, goff), gy, min(size-1, size + goff), min(size-1, gy + gh)], fill=gc)
+    return img
+
+def _avatar_cope_cage(rng, size):
+    """Literally a cage with 'COPE' — you're coping."""
+    h = rng.random()
+    bg = _hsv(h, 0.5, 0.3)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    face_r = int(size * 0.25)
+    face_col = _hsv(h, 0.2, 0.8)
+    draw.ellipse([m-face_r, m-face_r, m+face_r, m+face_r], fill=face_col)
+    ey = m - int(size * 0.04)
+    for ex in (m - int(size*0.09), m + int(size*0.09)):
+        draw.ellipse([ex-3, ey-3, ex+3, ey+3], fill=(30, 30, 30))
+    mw = int(size * 0.10)
+    my = m + int(size * 0.08)
+    draw.arc([m-mw, my, m+mw, my+mw], start=200, end=340,
+             fill=(60, 30, 20, 220), width=2)
+    bar_col = (80, 80, 80, 200)
+    for bx in range(m - face_r - 5, m + face_r + 10, size // 8):
+        draw.line([(bx, m - face_r - 10), (bx, m + face_r + 10)],
+                  fill=bar_col, width=3)
+    for by in (m - face_r - 5, m + face_r + 5):
+        draw.line([(m - face_r - 10, by), (m + face_r + 10, by)],
+                  fill=bar_col, width=3)
+    word = rng.choice(["COPE", "COPING", "SEETHE", "MALD", "COPIUM"])
+    wf = _get_font(max(7, size // 6))
+    _draw_text_centered(draw, word, wf, m, size - 14,
+                        fill=(255, 80, 80, 255), outline=(0, 0, 0, 200))
+    return img
+
+def _avatar_text_circle(rng, size):
+    """Brainrot words arranged in a circle around a center icon."""
+    h = rng.random()
+    bg = _hsv(h, 0.8, 0.3)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    center_text = rng.choice(["W", "L", "GG", "?!", "OK", "NO", "FR"])
+    cf = _get_font(max(12, size // 3))
+    _draw_text_centered(draw, center_text, cf, m, m,
+                        fill=_hsv((h+0.5)%1.0, 1.0, 1.0), outline=(0,0,0,200))
+    words = rng.sample(_BRAINROT_WORDS, min(8, len(_BRAINROT_WORDS)))
+    wf = _get_font(max(5, size // 13))
+    radius = int(size * 0.36)
+    for i, word in enumerate(words):
+        angle = i * 2 * math.pi / len(words) - math.pi / 2
+        wx = m + int(math.cos(angle) * radius)
+        wy = m + int(math.sin(angle) * radius)
+        text_col = _hsv((h + i * 0.1) % 1.0, 0.9, 1.0)
+        _draw_text_centered(draw, word[:6], wf, wx, wy,
+                            fill=text_col, outline=(0, 0, 0, 120))
+    draw.ellipse([m - radius - 2, m - radius - 2, m + radius + 2, m + radius + 2],
+                 outline=_hsv((h+0.5)%1.0, 0.9, 0.9), width=2)
+    return img
+
+def _avatar_achievement(rng, size):
+    """Xbox/PS style achievement popup."""
+    bg = (30, 30, 30, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    box_col = (50, 50, 50, 255)
+    draw.rounded_rectangle([8, m - int(size*0.22), size-8, m + int(size*0.22)],
+                           radius=8, fill=box_col)
+    draw.rounded_rectangle([8, m - int(size*0.22), size-8, m + int(size*0.22)],
+                           radius=8, outline=(100, 100, 100), width=2)
+    ix = 24
+    iy = m
+    draw.ellipse([ix-8, iy-8, ix+8, iy+8], fill=(255, 215, 0))
+    draw.text((ix-4, iy-6), "!", font=_get_font(12), fill=(0, 0, 0))
+    hf = _get_font(max(5, size // 12))
+    draw.text((40, m - int(size*0.16)), "ACHIEVEMENT", font=hf, fill=(150, 150, 150))
+    achievements = [
+        "LOST ALL RIZZ", "TOUCHED GRASS", "COOKED BEYOND", "RATIO'D SELF",
+        "0 AURA ACHIEVED", "MAX BRAINROT", "NPC ACTIVATED", "SIGMA UNLOCKED",
+        "OHIO SURVIVED", "SKILL ISSUED", "DOWN ASTRONOMICAL", "FULLY COOKED",
+    ]
+    name = rng.choice(achievements)
+    nf = _get_font(max(6, size // 9))
+    draw.text((40, m - int(size*0.03)), name, font=nf, fill=(255, 255, 255))
+    gs = rng.choice([0, 5, 10, 15, 25, 50, 100, -100, 69, 420])
+    gsf = _get_font(max(6, size // 10))
+    draw.text((40, m + int(size*0.10)), f"{gs}G", font=gsf, fill=(100, 200, 100))
+    return img
+
+def _avatar_emoji_explosion(rng, size):
+    """Multiple brainrot words scattered chaotically."""
+    h = rng.random()
+    bg = _hsv(h, 0.4, 0.15)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for _ in range(rng.randint(8, 18)):
+        word = rng.choice(_BRAINROT_WORDS + ["💀","🗿","🔥","💯","🤡","W","L"])
+        fs = rng.randint(max(5, size//14), max(8, size//6))
+        font = _get_font(fs)
+        wx = rng.randint(10, size-10)
+        wy = rng.randint(10, size-10)
+        if math.hypot(wx - m, wy - m) < size//2 - 5:
+            col = _hsv(rng.random(), 0.9, 1.0)
+            draw.text((wx - fs, wy - fs//2), word[:6], font=font, fill=col)
+    main = rng.choice(["BRAINROT", "SIGMA", "SKIBIDI", "OHIO", "RIZZ"])
+    mf = _get_font(max(8, size // 5))
+    _draw_text_centered(draw, main, mf, m, m,
+                        fill=(255, 255, 255, 255), outline=(0, 0, 0, 220))
+    return img
+
+def _avatar_mugshot(rng, size):
+    """Criminal mugshot style — height lines, number plate."""
+    bg = (200, 195, 185, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    line_col = (80, 80, 80, 200)
+    for y in range(10, size - 10, size // 10):
+        draw.line([(8, y), (18, y)], fill=line_col, width=1)
+        draw.line([(size - 18, y), (size - 8, y)], fill=line_col, width=1)
+    head_r = int(size * 0.18)
+    draw.ellipse([m - head_r, m - head_r - 5, m + head_r, m + head_r - 5],
+                 fill=(60, 50, 45, 255))
+    draw.ellipse([m - int(size*0.22), m + head_r - 5, m + int(size*0.22), m + int(size*0.3)],
+                 fill=(60, 50, 45, 255))
+    plate_y = m + int(size * 0.22)
+    draw.rectangle([m - int(size*0.3), plate_y, m + int(size*0.3), plate_y + 18],
+                   fill=(255, 255, 255))
+    draw.rectangle([m - int(size*0.3), plate_y, m + int(size*0.3), plate_y + 18],
+                   outline=(0, 0, 0), width=1)
+    num = f"{rng.randint(100000, 999999)}"
+    nf = _get_font(max(6, size // 9))
+    _draw_text_centered(draw, num, nf, m, plate_y + 9,
+                        fill=(0, 0, 0, 255), outline=(255, 255, 255))
+    crime = rng.choice(["NO RIZZ", "RATIO", "COPE", "0 AURA", "NPC",
+                        "BRAINROT", "CRINGE", "DOWN BAD", "COOKED", "L"])
+    cf = _get_font(max(6, size // 10))
+    _draw_text_centered(draw, f"CRIME: {crime}", cf, m, 14,
+                        fill=(180, 30, 30, 255), outline=(0, 0, 0, 120))
+    return img
+
+def _avatar_radar(rng, size):
+    """Green radar screen detecting brainrot."""
+    bg = (0, 10, 0, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for r in range(size // 8, size // 2, size // 8):
+        draw.ellipse([m-r, m-r, m+r, m+r], outline=(0, 60, 0, 150), width=1)
+    draw.line([(m, 5), (m, size-5)], fill=(0, 60, 0, 150), width=1)
+    draw.line([(5, m), (size-5, m)], fill=(0, 60, 0, 150), width=1)
+    sweep_angle = rng.uniform(0, 2 * math.pi)
+    sx = m + int(math.cos(sweep_angle) * (size//2 - 5))
+    sy = m + int(math.sin(sweep_angle) * (size//2 - 5))
+    draw.line([(m, m), (sx, sy)], fill=(0, 255, 0, 200), width=2)
+    for _ in range(rng.randint(2, 6)):
+        bx = m + rng.randint(-size//3, size//3)
+        by = m + rng.randint(-size//3, size//3)
+        if math.hypot(bx - m, by - m) < size//2 - 10:
+            draw.ellipse([bx-3, by-3, bx+3, by+3], fill=(0, 255, 0, 255))
+    label = rng.choice(["BRAINROT DETECTED", "SIGMA LOCATED", "NPC FOUND",
+                        "OHIO SPOTTED", "RIZZ INCOMING"])
+    lf = _get_font(max(5, size // 11))
+    _draw_text_centered(draw, label, lf, m, size - 14,
+                        fill=(0, 200, 0, 200), outline=(0, 0, 0, 100))
+    return img
+
+def _avatar_newspaper(rng, size):
+    """Old-timey newspaper with brainrot headline."""
+    bg = (235, 225, 205, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    draw.rectangle([8, 8, size-8, 22], fill=(30, 30, 30))
+    hf = _get_font(max(5, size // 11))
+    draw.text((12, 9), "DAILY BRAINROT", font=hf, fill=(235, 225, 205))
+    draw.line([(8, 24), (size-8, 24)], fill=(60, 50, 40), width=2)
+    headlines = [
+        "LOCAL NPC\nFOUND MEWING", "MAN LOSES\nALL AURA", "OHIO MAN\nSURVIVES SKIBIDI",
+        "SIGMA MALE\nDETECTED", "RIZZ GOD\nAPPEARS", "GYATT LEVELS\nOFF CHARTS",
+        "BRAINROT\nEPIDEMIC", "FANUM TAX\nINCREASES", "RATIO\nBREAKS RECORD",
+    ]
+    headline = rng.choice(headlines)
+    lines = headline.split("\n")
+    hlf = _get_font(max(7, size // 7))
+    for i, line in enumerate(lines):
+        _draw_text_centered(draw, line, hlf, m, 35 + i * 18,
+                            fill=(30, 25, 20, 255), outline=bg[:3])
+    tf = _get_font(max(4, size // 18))
+    for y in range(size // 2 + 10, size - 15, 7):
+        line_w = rng.randint(size//3, size - 20)
+        draw.line([(m - line_w//2, y), (m + line_w//2, y)], fill=(100, 90, 75, 150), width=1)
+    return img
+
+def _avatar_broken_mirror(rng, size):
+    """Shattered mirror effect with crack lines."""
+    h = rng.random()
+    bg = _hsv(h, 0.3, 0.7)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for _ in range(rng.randint(6, 14)):
+        pts = []
+        for _ in range(3):
+            px = rng.randint(5, size-5)
+            py = rng.randint(5, size-5)
+            pts.append((px, py))
+        shade = rng.uniform(-0.15, 0.15)
+        shard_col = _hsv(h, max(0, 0.3 + shade), min(1.0, 0.7 + shade))
+        draw.polygon(pts, fill=shard_col)
+    crack_col = (30, 30, 30, 200)
+    for _ in range(rng.randint(5, 10)):
+        pts = [(m, m)]
+        cx, cy = float(m), float(m)
+        for _ in range(rng.randint(3, 7)):
+            cx += rng.uniform(-20, 20)
+            cy += rng.uniform(-20, 20)
+            pts.append((int(cx), int(cy)))
+        if len(pts) >= 2:
+            draw.line(pts, fill=crack_col, width=rng.randint(1, 3))
+    draw.ellipse([m-4, m-4, m+4, m+4], fill=(255, 255, 255, 200))
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size-1, size-1], fill=255)
+    img.putalpha(mask)
+    return img
+
+def _avatar_wifi_signal(rng, size):
+    """WiFi signal bars but it's brainrot strength."""
+    bg = (15, 15, 30, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    signal = rng.randint(1, 4)
+    for i in range(4):
+        r = int(size * 0.12 * (i + 1))
+        col = (0, 255, 0, 255) if i < signal else (60, 60, 60, 200)
+        draw.arc([m - r, m - r, m + r, m + r], start=225, end=315, fill=col,
+                 width=max(3, size // 16))
+    draw.ellipse([m-4, m-4, m+4, m+4], fill=(0, 255, 0) if signal > 0 else (255, 0, 0))
+    labels = {1: "LOW BRAINROT", 2: "MID BRAINROT", 3: "HIGH BRAINROT", 4: "MAX BRAINROT"}
+    label = labels.get(signal, "NO SIGNAL")
+    lf = _get_font(max(5, size // 10))
+    _draw_text_centered(draw, label, lf, m, m + int(size * 0.32),
+                        fill=(200, 200, 200, 200), outline=(0, 0, 0, 100))
+    return img
+
+def _avatar_vinyl_record(rng, size):
+    """Vinyl record with brainrot label."""
+    bg = (20, 20, 20, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for r in range(size//2 - 5, size//6, -3):
+        groove_col = (rng.randint(25, 45), rng.randint(25, 45), rng.randint(25, 45), 255)
+        draw.ellipse([m-r, m-r, m+r, m+r], outline=groove_col, width=1)
+    label_r = int(size * 0.18)
+    label_col = _hsv(rng.random(), 0.8, 0.8)
+    draw.ellipse([m - label_r, m - label_r, m + label_r, m + label_r], fill=label_col)
+    title = rng.choice(["BRAINROT\nBEATS", "SIGMA\nGRIND", "SKIBIDI\nMIX",
+                        "OHIO\nANTHEM", "RIZZ\nTRACK", "NPC\nCORE"])
+    lines = title.split("\n")
+    for i, line in enumerate(lines):
+        lf = _get_font(max(5, size // 10))
+        _draw_text_centered(draw, line, lf, m, m - 6 + i * 12,
+                            fill=(255, 255, 255, 255), outline=label_col)
+    draw.ellipse([m-3, m-3, m+3, m+3], fill=bg[:3])
+    return img
+
+def _avatar_pixel_skull(rng, size):
+    """8-bit pixel art skull."""
+    bg = _hsv(rng.random(), 0.5, 0.2)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    grid = 8
+    cell = size // grid
+    skull_col = (240, 235, 220, 255)
+    bone_pattern = [
+        (2,1),(3,1),(4,1),(5,1),
+        (1,2),(2,2),(3,2),(4,2),(5,2),(6,2),
+        (1,3),(2,3),(3,3),(4,3),(5,3),(6,3),
+        (1,4),(3,4),(4,4),(6,4),
+        (1,5),(2,5),(3,5),(4,5),(5,5),(6,5),
+        (2,6),(3,6),(4,6),(5,6),
+        (2,7),(4,7),(6,7),
+    ]
+    eye_pattern = [(2,4),(5,4)]
+    for px, py in bone_pattern:
+        x0, y0 = px * cell, py * cell
+        draw.rectangle([x0, y0, x0+cell-1, y0+cell-1], fill=skull_col)
+    for px, py in eye_pattern:
+        x0, y0 = px * cell, py * cell
+        draw.rectangle([x0, y0, x0+cell-1, y0+cell-1], fill=bg)
+    if rng.random() < 0.5:
+        glow = rng.choice([(255,0,0),(0,255,0),(255,0,255)])
+        for px, py in eye_pattern:
+            x0, y0 = px * cell + cell//4, py * cell + cell//4
+            draw.rectangle([x0, y0, x0+cell//2, y0+cell//2], fill=glow)
+    return img
+
+def _avatar_potion(rng, size):
+    """Magic potion bottle with brainrot label."""
+    bg = (15, 10, 25, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    bottle_col = (180, 200, 220, 200)
+    draw.rectangle([m-6, m-int(size*0.28), m+6, m-int(size*0.10)], fill=bottle_col)
+    draw.rectangle([m-8, m-int(size*0.32), m+8, m-int(size*0.28)], fill=(140, 100, 60))
+    draw.rounded_rectangle([m-int(size*0.22), m-int(size*0.10),
+                            m+int(size*0.22), m+int(size*0.30)],
+                           radius=8, fill=bottle_col)
+    liquid_h = rng.uniform(0.3, 0.9)
+    liquid_col = _hsv(rng.random(), 0.9, 0.9)
+    liquid_top = m + int(size*0.30) - int((size*0.40) * liquid_h)
+    draw.rounded_rectangle([m-int(size*0.20), liquid_top,
+                            m+int(size*0.20), m+int(size*0.28)],
+                           radius=6, fill=liquid_col)
+    for _ in range(rng.randint(3, 8)):
+        bx = m + rng.randint(-int(size*0.15), int(size*0.15))
+        by = rng.randint(liquid_top + 5, m + int(size*0.25))
+        br = rng.randint(1, 4)
+        draw.ellipse([bx-br, by-br, bx+br, by+br],
+                     outline=(255, 255, 255, 150), width=1)
+    potion_name = rng.choice(["RIZZ POTION", "SIGMA JUICE", "BRAINROT BREW",
+                               "COPIUM", "AURA ELIXIR", "OHIO WATER",
+                               "NPC SERUM", "MEWING OIL", "GYATT DRINK"])
+    lf = _get_font(max(5, size // 11))
+    _draw_text_centered(draw, potion_name, lf, m, m + int(size*0.38),
+                        fill=(200, 200, 200, 220), outline=(0, 0, 0, 120))
+    return img
+
+def _avatar_eye_of_brainrot(rng, size):
+    """Giant all-seeing eye with brainrot pupil."""
+    bg = (10, 5, 20, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    ew = int(size * 0.40)
+    eh = int(size * 0.22)
+    draw.ellipse([m-ew, m-eh, m+ew, m+eh], fill=(240, 235, 225, 255))
+    iris_r = int(size * 0.16)
+    iris_col = _hsv(rng.random(), 0.85, 0.7)
+    draw.ellipse([m-iris_r, m-iris_r, m+iris_r, m+iris_r], fill=iris_col)
+    for i in range(24):
+        angle = i * math.pi / 12
+        inner_r = iris_r // 3
+        ix = m + int(math.cos(angle) * inner_r)
+        iy = m + int(math.sin(angle) * inner_r)
+        ox = m + int(math.cos(angle) * iris_r)
+        oy = m + int(math.sin(angle) * iris_r)
+        lc = _hsv((iris_col[0]/255 + i*0.02) % 1.0, 0.7, 0.6)
+        draw.line([(ix, iy), (ox, oy)], fill=lc, width=1)
+    pupil_r = iris_r // 2
+    draw.ellipse([m-pupil_r, m-pupil_r, m+pupil_r, m+pupil_r], fill=(5, 0, 10, 255))
+    draw.ellipse([m-pupil_r+3, m-pupil_r-2, m-pupil_r+7, m-pupil_r+2],
+                 fill=(255, 255, 255, 200))
+    word = rng.choice(["SUS", "NPC", "W", "L", "GG", "?"])
+    wf = _get_font(max(5, pupil_r))
+    _draw_text_centered(draw, word, wf, m, m,
+                        fill=(255, 255, 255, 100), outline=(0, 0, 0, 50))
+    for i in range(8):
+        angle = math.pi + i * math.pi / 7
+        lx = m + int(math.cos(angle) * (ew + 5))
+        ly = m + int(math.sin(angle) * (eh + 5))
+        draw.line([(m + int(math.cos(angle)*ew), m + int(math.sin(angle)*eh)),
+                   (lx, ly)], fill=(200, 180, 150, 200), width=2)
+    return img
+
+def _avatar_slot_machine(rng, size):
+    """Three slot reels showing brainrot symbols."""
+    bg = (40, 10, 10, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    draw.rounded_rectangle([10, m-int(size*0.25), size-10, m+int(size*0.20)],
+                           radius=6, fill=(60, 30, 30), outline=(255, 215, 0), width=2)
+    symbols = rng.choices(["W", "L", "7", "$", "!", "?", "*", "#", "S", "R"], k=3)
+    reel_w = (size - 40) // 3
+    for i, sym in enumerate(symbols):
+        rx = 18 + i * reel_w
+        ry = m - int(size * 0.15)
+        rh = int(size * 0.25)
+        draw.rectangle([rx, ry, rx + reel_w - 4, ry + rh], fill=(255, 255, 240))
+        draw.rectangle([rx, ry, rx + reel_w - 4, ry + rh], outline=(100, 50, 50), width=1)
+        sf = _get_font(max(10, size // 4))
+        _draw_text_centered(draw, sym, sf, rx + reel_w//2 - 2, ry + rh//2,
+                            fill=(rng.randint(0,255), rng.randint(0,255), rng.randint(0,255)),
+                            outline=(0, 0, 0, 100))
+    if symbols[0] == symbols[1] == symbols[2]:
+        jf = _get_font(max(7, size // 7))
+        _draw_text_centered(draw, "JACKPOT!", jf, m, size - 14,
+                            fill=(255, 215, 0, 255), outline=(0, 0, 0, 200))
+    else:
+        word = rng.choice(["SPIN", "TRY AGAIN", "COPE", "L", "RIGGED"])
+        jf = _get_font(max(6, size // 9))
+        _draw_text_centered(draw, word, jf, m, size - 14,
+                            fill=(200, 200, 200, 200), outline=(0, 0, 0, 120))
+    return img
+
+def _avatar_security_cam(rng, size):
+    """Grainy security camera view with timestamp."""
+    bg = (30, 30, 30, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for _ in range(rng.randint(100, 300)):
+        px = rng.randint(0, size-1)
+        py = rng.randint(0, size-1)
+        if math.hypot(px - m, py - m) < size//2:
+            v = rng.randint(20, 80)
+            draw.point((px, py), fill=(v, v, v, 200))
+    fig_col = (rng.randint(50, 90), rng.randint(50, 90), rng.randint(50, 90), 200)
+    draw.ellipse([m - 10, m - 18, m + 10, m - 2], fill=fig_col)
+    draw.rectangle([m - 12, m, m + 12, m + 20], fill=fig_col)
+    draw.ellipse([8, 8, 16, 16], fill=(255, 0, 0, 255))
+    rf = _get_font(max(5, size // 12))
+    draw.text((20, 7), "REC", font=rf, fill=(255, 0, 0, 220))
+    tf = _get_font(max(5, size // 13))
+    timestamp = f"CAM-{rng.randint(1,9)} {rng.randint(0,23):02d}:{rng.randint(0,59):02d}:{rng.randint(0,59):02d}"
+    draw.text((8, size - 16), timestamp, font=tf, fill=(200, 200, 200, 180))
+    for y in range(0, size, 3):
+        draw.line([(0, y), (size, y)], fill=(0, 0, 0, 40), width=1)
+    return img
+
+def _avatar_thought_bubble(rng, size):
+    """Thought bubble with brainrot content inside."""
+    bg = (rng.randint(30, 60), rng.randint(30, 60), rng.randint(40, 70), 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    cloud_col = (245, 245, 250, 255)
+    for cx_b, cy_b, cr_b in [(m, m-5, int(size*0.28)),
+                               (m-int(size*0.15), m+2, int(size*0.20)),
+                               (m+int(size*0.15), m-2, int(size*0.22)),
+                               (m-int(size*0.08), m-int(size*0.18), int(size*0.18)),
+                               (m+int(size*0.10), m-int(size*0.15), int(size*0.16))]:
+        draw.ellipse([cx_b-cr_b, cy_b-cr_b, cx_b+cr_b, cy_b+cr_b], fill=cloud_col)
+    draw.ellipse([m-int(size*0.05), m+int(size*0.28), m+int(size*0.05), m+int(size*0.35)],
+                 fill=cloud_col)
+    draw.ellipse([m-int(size*0.12), m+int(size*0.36), m-int(size*0.06), m+int(size*0.40)],
+                 fill=cloud_col)
+    thought = rng.choice(_BRAINROT_WORDS[:30] + _BRAINROT_PHRASES[:15])
+    for fs in range(size // 4, 6, -2):
+        font = _get_font(fs)
+        bbox = draw.textbbox((0, 0), thought, font=font)
+        if bbox[2] - bbox[0] < size * 0.50:
+            break
+    _draw_text_centered(draw, thought, font, m, m - 5,
+                        fill=(30, 30, 30, 255), outline=cloud_col)
+    return img
+
+def _avatar_countdown(rng, size):
+    """Bomb-style countdown timer."""
+    bg = (20, 10, 10, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    seconds = rng.randint(0, 59)
+    minutes = rng.randint(0, 9)
+    timer_text = f"{minutes}:{seconds:02d}"
+    tf = _get_font(max(14, int(size * 0.35)))
+    _draw_text_centered(draw, timer_text, tf, m, m,
+                        fill=(255, 0, 0, 255), outline=(80, 0, 0, 200))
+    if rng.random() < 0.5:
+        draw.rectangle([m-2, m-8, m+2, m-4], fill=bg[:3])
+        draw.rectangle([m-2, m+4, m+2, m+8], fill=bg[:3])
+    wire_colors = [(255, 0, 0), (0, 0, 255), (0, 255, 0), (255, 255, 0)]
+    for i, wc in enumerate(wire_colors):
+        wx = m - 15 + i * 10
+        draw.line([(wx, m + int(size*0.20)), (wx + rng.randint(-5, 5), m + int(size*0.35))],
+                  fill=wc, width=2)
+    label = rng.choice(["BRAINROT BOMB", "SIGMA TIME", "TICK TOCK", "ITS OVER"])
+    lf = _get_font(max(5, size // 10))
+    _draw_text_centered(draw, label, lf, m, m - int(size * 0.28),
+                        fill=(200, 200, 200, 200), outline=(0, 0, 0, 100))
+    return img
+
+def _avatar_speedometer(rng, size):
+    """Speedometer showing brainrot level."""
+    bg = (15, 15, 20, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    gauge_r = int(size * 0.38)
+    draw.arc([m-gauge_r, m-gauge_r, m+gauge_r, m+gauge_r],
+             start=135, end=405, fill=(40, 40, 40), width=max(6, size//10))
+    colors = [(0, 255, 0), (255, 255, 0), (255, 150, 0), (255, 0, 0)]
+    section_span = 270 / len(colors)
+    for i, col in enumerate(colors):
+        start = 135 + i * section_span
+        end = start + section_span
+        draw.arc([m-gauge_r, m-gauge_r, m+gauge_r, m+gauge_r],
+                 start=start, end=end, fill=col, width=max(4, size//12))
+    speed_pct = rng.uniform(0.5, 1.0)
+    needle_angle = math.radians(135 + 270 * speed_pct)
+    nx = m + int(math.cos(needle_angle) * gauge_r * 0.8)
+    ny = m + int(math.sin(needle_angle) * gauge_r * 0.8)
+    draw.line([(m, m), (nx, ny)], fill=(255, 50, 50), width=3)
+    draw.ellipse([m-4, m-4, m+4, m+4], fill=(200, 200, 200))
+    speed_val = int(speed_pct * rng.choice([100, 999, 9999]))
+    vf = _get_font(max(8, size // 5))
+    _draw_text_centered(draw, str(speed_val), vf, m, m + int(size*0.18),
+                        fill=(255, 255, 255, 255), outline=(0, 0, 0, 180))
+    unit = rng.choice(["BPM", "AURA/s", "RIZZ/h", "COPE/s", "BRAINROT"])
+    uf = _get_font(max(5, size // 11))
+    _draw_text_centered(draw, unit, uf, m, m + int(size * 0.32),
+                        fill=(150, 150, 150, 200), outline=(0, 0, 0, 80))
+    return img
+
+def _avatar_pixel_cry(rng, size):
+    """Low-res pixelated crying face."""
+    grid = 10
+    cell = size // grid
+    h = rng.random()
+    bg = _hsv(h, 0.5, 0.7)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    skin = _hsv(0.08, 0.3, 0.9)
+    eye_c = (30, 30, 30, 255)
+    tear_c = (80, 150, 255, 255)
+    mouth_c = (60, 30, 20, 255)
+    face = [(3,2),(4,2),(5,2),(6,2),
+            (2,3),(3,3),(4,3),(5,3),(6,3),(7,3),
+            (2,4),(3,4),(4,4),(5,4),(6,4),(7,4),
+            (2,5),(3,5),(4,5),(5,5),(6,5),(7,5),
+            (2,6),(3,6),(4,6),(5,6),(6,6),(7,6),
+            (3,7),(4,7),(5,7),(6,7)]
+    for px, py in face:
+        x0, y0 = px*cell, py*cell
+        draw.rectangle([x0,y0,x0+cell-1,y0+cell-1], fill=skin)
+    for px, py in [(3,4),(6,4)]:
+        x0, y0 = px*cell, py*cell
+        draw.rectangle([x0,y0,x0+cell-1,y0+cell-1], fill=eye_c)
+    for px, py in [(3,5),(3,6),(6,5),(6,6)]:
+        x0, y0 = px*cell, py*cell
+        draw.rectangle([x0,y0,x0+cell-1,y0+cell-1], fill=tear_c)
+    for px, py in [(4,6),(5,6)]:
+        x0, y0 = px*cell, py*cell
+        draw.rectangle([x0,y0,x0+cell-1,y0+cell-1], fill=mouth_c)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size-1, size-1], fill=255)
+    img.putalpha(mask)
+    return img
+
+def _avatar_planet(rng, size):
+    """A planet themed around brainrot — with rings and text."""
+    bg = (5, 2, 15, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    for _ in range(rng.randint(15, 40)):
+        sx = rng.randint(0, size-1)
+        sy = rng.randint(0, size-1)
+        if math.hypot(sx-m, sy-m) < size//2:
+            draw.point((sx, sy), fill=(200, 200, 200, rng.randint(100, 255)))
+    planet_r = int(size * 0.25)
+    planet_col = _hsv(rng.random(), 0.7, 0.7)
+    draw.ellipse([m-planet_r, m-planet_r, m+planet_r, m+planet_r], fill=planet_col)
+    for i in range(3):
+        ar = planet_r - i * 3
+        ac = _hsv((planet_col[0]/255 + 0.05*i) % 1.0, 0.5, 0.8, 40)
+        if ar > 3:
+            draw.ellipse([m-ar, m-ar, m+ar, m+ar], outline=ac, width=2)
+    ring_col = _hsv(rng.random(), 0.6, 0.8, 180)
+    draw.arc([m - planet_r - 12, m - 5, m + planet_r + 12, m + 5],
+             start=0, end=360, fill=ring_col, width=3)
+    name = rng.choice(["PLANET OHIO", "PLANET SIGMA", "PLANET RIZZ",
+                        "PLANET NPC", "PLANET BRAINROT", "PLANET COPE"])
+    nf = _get_font(max(5, size // 10))
+    _draw_text_centered(draw, name, nf, m, m + int(size * 0.35),
+                        fill=(200, 200, 200, 200), outline=(0, 0, 0, 100))
+    return img
+
+def _avatar_id_card(rng, size):
+    """Fake ID card for a brainrot citizen."""
+    bg = (220, 220, 230, 255)
+    img = Image.new("RGBA", (size, size), (0,0,0,0))
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([0, 0, size-1, size-1], fill=bg)
+    m = size // 2
+    card_margin = int(size * 0.08)
+    draw.rounded_rectangle([card_margin, card_margin + 5,
+                            size - card_margin, size - card_margin - 5],
+                           radius=6, fill=(255, 255, 255),
+                           outline=(100, 100, 120), width=2)
+    draw.rectangle([card_margin, card_margin + 5,
+                    size - card_margin, card_margin + 20],
+                   fill=(30, 50, 120))
+    hf = _get_font(max(5, size // 12))
+    draw.text((card_margin + 4, card_margin + 6), "BRAINROT ID", font=hf, fill=(255, 255, 255))
+    photo_size = int(size * 0.22)
+    photo_x = card_margin + 6
+    photo_y = card_margin + 24
+    photo_col = _hsv(rng.random(), 0.5, 0.7)
+    draw.rectangle([photo_x, photo_y, photo_x + photo_size, photo_y + photo_size],
+                   fill=photo_col, outline=(100, 100, 100))
+    pc = photo_x + photo_size // 2
+    pr = photo_size // 4
+    draw.ellipse([pc-pr, photo_y+pr-pr, pc+pr, photo_y+pr+pr],
+                 fill=_hsv(0.08, 0.2, 0.9))
+    info_x = photo_x + photo_size + 6
+    info_f = _get_font(max(4, size // 14))
+    name = rng.choice(BRAINROT_NAMES[:50])[:12]
+    draw.text((info_x, photo_y), f"NAME:", font=info_f, fill=(100, 100, 100))
+    draw.text((info_x, photo_y + 10), name, font=info_f, fill=(30, 30, 30))
+    rank = rng.choice(["SIGMA", "NPC", "GOAT", "RATIO", "BASED"])
+    draw.text((info_x, photo_y + 24), f"RANK:", font=info_f, fill=(100, 100, 100))
+    draw.text((info_x, photo_y + 34), rank, font=info_f, fill=(30, 30, 30))
+    aura = rng.choice(["+999", "-999", "0", "+420", "-69", "MAX"])
+    draw.text((info_x, photo_y + 48), f"AURA: {aura}", font=info_f, fill=(30, 30, 30))
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse([0, 0, size-1, size-1], fill=255)
+    img.putalpha(mask)
+    return img
+    # ─────────────────────────────────────────────────────────────────────────────
+# COLLECT ALL 50 STYLES
+# ─────────────────────────────────────────────────────────────────────────────
+
+_AVATAR_STYLES_ORIGINAL = []
+
+_AVATAR_STYLES_NEW = [
+    _avatar_faded_eyes, _avatar_meltdown, _avatar_npc_stare,
+    _avatar_spiral_brainrot, _avatar_deep_fried, _avatar_skull_meme,
+    _avatar_crying_floods, _avatar_gigachad, _avatar_ohio_boss,
+    _avatar_skibidi_face, _avatar_text_expression, _avatar_glowing_brain,
+    _avatar_unhinged, _avatar_rizz_aura, _avatar_caught_4k,
+    _avatar_void_entity, _avatar_aura_counter, _avatar_mewing,
+    _avatar_sus_imposter, _avatar_loading_brainrot, _avatar_ratio_tombstone,
+    _avatar_backrooms, _avatar_touch_grass, _avatar_error_screen,
+    _avatar_tier_list, _avatar_inverted_face, _avatar_health_bar,
+    _avatar_dual_personality, _avatar_glitch_text, _avatar_cope_cage,
+    _avatar_text_circle, _avatar_achievement, _avatar_emoji_explosion,
+    _avatar_mugshot, _avatar_radar, _avatar_newspaper,
+    _avatar_broken_mirror, _avatar_wifi_signal, _avatar_vinyl_record,
+    _avatar_pixel_skull, _avatar_potion, _avatar_eye_of_brainrot,
+    _avatar_slot_machine, _avatar_security_cam, _avatar_thought_bubble,
+    _avatar_countdown, _avatar_speedometer, _avatar_pixel_cry,
+    _avatar_planet, _avatar_id_card,
+]
+
+_AVATAR_STYLES = _AVATAR_STYLES_ORIGINAL + _AVATAR_STYLES_NEW
+
+print(f"OK: {len(_AVATAR_STYLES)} avatar styles loaded ({len(_AVATAR_STYLES_ORIGINAL)} original + {len(_AVATAR_STYLES_NEW)} new).")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SMART AVATAR SYSTEM
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_avatar_pool(count=300, size=96, seed=42):
+    """Generate a pool of procedural brainrot avatars."""
+    rng = random.Random(seed)
+    avatars = []
+    for i in range(count):
+        style_fn = rng.choice(_AVATAR_STYLES)
+        try:
+            av = style_fn(rng, size)
+            if av.mode != "RGBA":
+                av = av.convert("RGBA")
+            avatars.append(av)
+        except Exception:
+            av = Image.new("RGBA", (size, size), (0,0,0,0))
+            dr = ImageDraw.Draw(av)
+            col = _hsv(rng.random(), 0.7, 0.85)
+            dr.ellipse([0,0,size-1,size-1], fill=col)
+            avatars.append(av)
+    return avatars
+
+def generate_character_images(names, size=96, seed=42):
+    """
+    SMART loader:
+    1. Download ALL custom images from GitHub (auto-detect count)
+    2. Generate procedural avatars to fill remaining slots
+    3. Mix and assign randomly
+    """
+    print(f"\n[AVATAR SYSTEM] Preparing avatars for {len(names)} characters...")
+    custom_images = discover_github_images()
+    custom_count = len(custom_images)
+    print(f"[AVATAR SYSTEM] {custom_count} custom images from GitHub")
+    needed_generated = max(0, len(names) - custom_count)
+    generated_count = max(needed_generated, len(names) // 2)
+    print(f"[AVATAR SYSTEM] Generating {generated_count} procedural avatars...")
+    avatar_seed = hash(seed) & 0xFFFFFF
+    generated_images = generate_avatar_pool(generated_count, size, avatar_seed)
+    all_images = list(custom_images) + list(generated_images)
+    rng = random.Random(seed + 7)
+    rng.shuffle(all_images)
+    result = {}
+    for i, name in enumerate(names):
+        result[name] = all_images[i % len(all_images)]
+    print(f"[AVATAR SYSTEM] Assigned {len(result)} avatars "
+          f"({custom_count} custom + {len(generated_images)} generated)")
+    print(f"[AVATAR SYSTEM] Add more images to GitHub repo and they'll auto-load!\n")
+    return result
+
+print("OK: Smart avatar system ready.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class Config:
+    width: int = 720
+    height: int = 1280
+    fps: int = 30
+    duration: float = 52.0
+    bitrate: str = "6000k"
+    arena_margin_start: int = 40
+    arena_margin_end: int = 370
+    arena_color: Tuple[int, int, int] = (15, 12, 30)
+    arena_border_color: Tuple[int, int, int] = (255, 255, 255)
+    arena_border_width: int = 4
+    num_balls: int = 100
+    ball_radius: int = 13
+    ball_speed_min: float = 2.0
+    ball_speed_max: float = 4.5
+    ball_outline_width: int = 2
+    challenge_interval: float = 4.0
+    challenges_per_game: int = 10
+    gravity: float = 0.0
+    bounce_damping: float = 0.95
+    ball_ball_push: float = 0.7
+    audio_enabled: bool = True
+    output_dir: str = "/content/generated_races"
+    image_cache_dir: str = "/content/brainrot_img_cache"
+    seed: Optional[int] = None
+    background_image_path: Optional[str] = None
+
+    def __post_init__(self):
+        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.image_cache_dir, exist_ok=True)
+        if self.seed is None:
+            self.seed = random.randint(0, 2**31)
+
+print("OK: Config ready.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HAZARD DATA CLASSES
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class Fireball:
+    x: float; y: float; vx: float; vy: float
+    radius: float = 18.0
+    trail: list = field(default_factory=list)
+    lifetime: float = 999.0
+    color: Tuple[int, int, int] = (255, 100, 0)
+
+@dataclass
+class SpinningLaser:
+    cx: float; cy: float
+    angle: float = 0.0; length: float = 250.0; speed: float = 0.03
+    thickness: float = 8.0; kill_radius: float = 14.0
+    color: Tuple[int, int, int] = (255, 40, 40)
+    arms: int = 2; warmup_frames: int = 45; lifetime_frames: int = 900
+
+@dataclass
+class DeathWall:
+    side: str; position: float = 0.0; speed: float = 0.6
+    max_position: float = 250.0; color: Tuple[int, int, int] = (200, 0, 0)
+    warmup_frames: int = 0; lifetime_frames: int = 600; retreating: bool = False
+
+@dataclass
+class Shockwave:
+    cx: float; cy: float; current_radius: float = 0.0; max_radius: float = 350.0
+    speed: float = 4.0; thickness: float = 12.0; kill_thickness: float = 12.0
+    done: bool = False; color: Tuple[int, int, int] = (255, 255, 100)
+
+@dataclass
+class Meteor:
+    target_x: float; target_y: float; current_y: float
+    x: float = 0.0; speed: float = 6.0; radius: float = 16.0
+    blast_radius: float = 60.0; exploded: bool = False
+    explosion_frame: int = -1; warning_shown: bool = True
+
+@dataclass
+class Spike:
+    x: float; y: float; radius: float
+    pulse_phase: float = 0.0; warmup_frames: int = 30
+
+@dataclass
+class LavaZone:
+    side: str; thickness: float = 0.0; max_thickness: float = 120.0
+    grow_speed: float = 0.10; warmup_frames: int = 60
+
+@dataclass
+class Vortex:
+    x: float; y: float; radius: float = 80.0; strength: float = 2.5
+    rotation: float = 0.0; kill_radius: float = 14.0; lifetime_frames: int = 900
+
+print("OK: Hazard data classes ready.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BALL CLASS
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Ball:
+    __slots__ = ("id","x","y","vx","vy","radius","color","accent","alive",
+                 "death_frame","trail","name","flash_timer","invincible_timer",
+                 "outline_color","character","emoji","symbol","original_radius")
+
+    def __init__(self, ball_id, x, y, radius, color, rng, character):
+        self.id=ball_id; self.x=x; self.y=y
+        speed=rng.uniform(2.0, 4.5)
+        angle=rng.uniform(0,2*math.pi)
+        self.vx=math.cos(angle)*speed; self.vy=math.sin(angle)*speed
+        self.radius=radius; self.original_radius=radius
+        self.color=color
+        self.accent=tuple(min(255,c+80) for c in color)
+        self.outline_color=tuple(max(0,c-60) for c in color)
+        self.alive=True; self.death_frame=-1
+        self.trail: List[Tuple[float,float]]=[]
+        self.name=character["name"]
+        self.emoji=character.get("emoji","[?]")
+        self.symbol=character.get("symbol",character["name"][:2].upper())
+        self.flash_timer=0.0; self.invincible_timer=0.0
+        self.character=character
+
+def generate_vibrant_colors(n, rng):
+    colors=[]
+    for i in range(n):
+        hue=(i/n+rng.uniform(-0.02,0.02))%1.0
+        sat=rng.uniform(0.7,1.0); val=rng.uniform(0.75,1.0)
+        r,g,b=colorsys.hsv_to_rgb(hue,sat,val)
+        colors.append((int(r*255),int(g*255),int(b*255)))
+    rng.shuffle(colors); return colors
+
+print("OK: Ball system ready.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HAZARD MANAGER — *** SHOCKWAVE FIX: KILLS DURING ENTIRE EXPANSION ***
+# ─────────────────────────────────────────────────────────────────────────────
+
+class HazardManager:
+    def __init__(self, config, rng):
+        self.config=config; self.rng=rng
+        self.fireballs: List[Fireball]=[]
+        self.spinning_lasers: List[SpinningLaser]=[]
+        self.death_walls: List[DeathWall]=[]
+        self.shockwaves: List[Shockwave]=[]
+        self.meteors: List[Meteor]=[]
+        self.spikes: List[Spike]=[]
+        self.lava_zones: List[LavaZone]=[]
+        self.vortices: List[Vortex]=[]
+
+    def update(self, t, frame, arena):
+        ax1,ay1,ax2,ay2=arena
+        for fb in self.fireballs:
+            fb.trail.append((fb.x,fb.y))
+            if len(fb.trail)>12: fb.trail.pop(0)
+            fb.x+=fb.vx; fb.y+=fb.vy
+            if fb.x-fb.radius<ax1: fb.x=ax1+fb.radius; fb.vx=abs(fb.vx)
+            if fb.x+fb.radius>ax2: fb.x=ax2-fb.radius; fb.vx=-abs(fb.vx)
+            if fb.y-fb.radius<ay1: fb.y=ay1+fb.radius; fb.vy=abs(fb.vy)
+            if fb.y+fb.radius>ay2: fb.y=ay2-fb.radius; fb.vy=-abs(fb.vy)
+            fb.lifetime-=1.0/self.config.fps
+        self.fireballs=[f for f in self.fireballs if f.lifetime>0]
+
+        for sl in self.spinning_lasers:
+            sl.angle+=sl.speed
+            if sl.warmup_frames>0: sl.warmup_frames-=1
+            sl.lifetime_frames-=1
+        self.spinning_lasers=[sl for sl in self.spinning_lasers if sl.lifetime_frames>0]
+
+        for dw in self.death_walls:
+            if dw.warmup_frames>0: dw.warmup_frames-=1
+            if dw.retreating: dw.position=max(0.0,dw.position-dw.speed)
+            elif dw.position<dw.max_position: dw.position+=dw.speed
+            dw.lifetime_frames-=1
+            if dw.lifetime_frames<=0 and not dw.retreating: dw.retreating=True
+        self.death_walls=[dw for dw in self.death_walls if not dw.retreating or dw.position>0]
+
+        for sw in self.shockwaves:
+            if not sw.done:
+                sw.current_radius+=sw.speed
+                if sw.current_radius>=sw.max_radius: sw.done=True
+        self.shockwaves=[s for s in self.shockwaves if not s.done]
+
+        for m_obj in self.meteors:
+            if not m_obj.exploded:
+                m_obj.current_y+=m_obj.speed
+                if m_obj.current_y>=m_obj.target_y: m_obj.exploded=True; m_obj.explosion_frame=frame
+        self.meteors=[m_obj for m_obj in self.meteors if not m_obj.exploded or frame-m_obj.explosion_frame<30]
+
+        for sp in self.spikes:
+            sp.pulse_phase+=0.1
+            if sp.warmup_frames>0: sp.warmup_frames-=1
+
+        for lz in self.lava_zones:
+            if lz.warmup_frames>0: lz.warmup_frames-=1
+            if lz.thickness<lz.max_thickness: lz.thickness+=lz.grow_speed
+
+        for v in self.vortices:
+            v.rotation+=0.08; v.lifetime_frames-=1
+        self.vortices=[v for v in self.vortices if v.lifetime_frames>0]
+
+        if len(self.spikes)>35: self.spikes=self.spikes[-30:]
+        if len(self.fireballs)>10: self.fireballs=self.fireballs[-8:]
+        if len(self.spinning_lasers)>3: self.spinning_lasers=self.spinning_lasers[-3:]
+        if len(self.death_walls)>4: self.death_walls=self.death_walls[-4:]
+        if len(self.vortices)>3: self.vortices=self.vortices[-3:]
+
+    def check_ball_death(self, ball, frame, arena):
+        """
+        *** SHOCKWAVE FIX ***
+        Now kills balls that are INSIDE the entire swept area (from center
+        to current_radius), not just at the thin ring edge.
+        The shockwave acts like a solid expanding disc of death.
+        """
+        if not ball.alive or ball.invincible_timer>0: return False
+        bx,by,br=ball.x,ball.y,ball.radius
+        ax1,ay1,ax2,ay2=arena
+
+        for fb in self.fireballs:
+            if math.hypot(bx-fb.x,by-fb.y)<fb.radius+br: return True
+
+        for sl in self.spinning_lasers:
+            if sl.warmup_frames>0: continue
+            for arm_i in range(sl.arms):
+                arm_angle=sl.angle+arm_i*(2*math.pi/sl.arms)
+                ex=sl.cx+math.cos(arm_angle)*sl.length; ey=sl.cy+math.sin(arm_angle)*sl.length
+                if self._point_line_dist(bx,by,sl.cx,sl.cy,ex,ey)<sl.kill_radius+br: return True
+
+        for dw in self.death_walls:
+            if dw.warmup_frames>0 or dw.retreating or dw.position<=0: continue
+            if dw.side=="left" and bx-br<ax1+dw.position: return True
+            if dw.side=="right" and bx+br>ax2-dw.position: return True
+            if dw.side=="top" and by-br<ay1+dw.position: return True
+            if dw.side=="bottom" and by+br>ay2-dw.position: return True
+
+        # *** SHOCKWAVE — FIXED: kills during ENTIRE expansion ***
+        # The shockwave is a solid expanding disc. Any ball whose center
+        # is within (current_radius + ball_radius) from the shockwave
+        # center gets killed. This means it kills on contact as it
+        # sweeps outward, not just at the final thin ring.
+        for sw in self.shockwaves:
+            dist = math.hypot(bx - sw.cx, by - sw.cy)
+            # Kill if ball is within the expanding disc edge + thickness
+            # The disc sweeps from 0 to current_radius, the kill zone is
+            # the ring from (current_radius - kill_thickness) to (current_radius + ball_radius)
+            # This ensures anything the wave passes over gets hit
+            inner_edge = max(0.0, sw.current_radius - sw.kill_thickness)
+            outer_edge = sw.current_radius + br
+            if inner_edge < dist < outer_edge:
+                return True
+
+        for m_obj in self.meteors:
+            if m_obj.exploded and frame-m_obj.explosion_frame<4:
+                if math.hypot(bx-m_obj.target_x,by-m_obj.target_y)<m_obj.blast_radius: return True
+
+        for sp in self.spikes:
+            if sp.warmup_frames>0: continue
+            pulse=1.0+0.15*math.sin(sp.pulse_phase)
+            if math.hypot(bx-sp.x,by-sp.y)<sp.radius*pulse+br: return True
+
+        for lz in self.lava_zones:
+            if lz.warmup_frames>0: continue
+            th=lz.thickness
+            if th<=0: continue
+            if lz.side=="bottom" and by+br>ay2-th: return True
+            if lz.side=="top" and by-br<ay1+th: return True
+            if lz.side=="left" and bx-br<ax1+th: return True
+            if lz.side=="right" and bx+br>ax2-th: return True
+
+        for v in self.vortices:
+            if math.hypot(bx-v.x,by-v.y)<v.kill_radius: return True
+
+        return False
+
+    def apply_vortex_force(self, ball):
+        for v in self.vortices:
+            dx=v.x-ball.x; dy=v.y-ball.y; dist=math.hypot(dx,dy)
+            if 0<dist<v.radius:
+                force=v.strength*(1.0-dist/v.radius)/max(dist,1.0)
+                ball.vx+=dx*force*0.04; ball.vy+=dy*force*0.04
+
+    @staticmethod
+    def _point_line_dist(px,py,x1,y1,x2,y2):
+        dx,dy=x2-x1,y2-y1
+        if dx==0 and dy==0: return math.hypot(px-x1,py-y1)
+        t=max(0,min(1,((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy)))
+        return math.hypot(px-(x1+t*dx),py-(y1+t*dy))
+
+print("OK: Hazard system ready (SHOCKWAVE FIXED).")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SNAPSHOT / RESTORE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _snapshot_hazards(hazards):
+    return {
+        "fireballs":[(fb.x,fb.y,fb.radius,fb.color,list(fb.trail)) for fb in hazards.fireballs],
+        "spinning_lasers":[(sl.cx,sl.cy,sl.angle,sl.length,sl.thickness,sl.kill_radius,sl.color,sl.arms,sl.warmup_frames) for sl in hazards.spinning_lasers],
+        "death_walls":[(dw.side,dw.position,dw.color,dw.warmup_frames,dw.retreating) for dw in hazards.death_walls],
+        "shockwaves":[(sw.cx,sw.cy,sw.current_radius,sw.thickness,sw.color,sw.kill_thickness) for sw in hazards.shockwaves],
+        "meteors":[(m_obj.target_x,m_obj.target_y,m_obj.current_y,m_obj.x,m_obj.radius,m_obj.blast_radius,m_obj.exploded,m_obj.explosion_frame) for m_obj in hazards.meteors],
+        "spikes":[(sp.x,sp.y,sp.radius,sp.pulse_phase,sp.warmup_frames) for sp in hazards.spikes],
+        "lava_zones":[(lz.side,lz.thickness,lz.warmup_frames) for lz in hazards.lava_zones],
+        "vortices":[(v.x,v.y,v.radius,v.rotation,v.kill_radius) for v in hazards.vortices],
+    }
+
+def _restore_hazards(hazards, snap):
+    hazards.fireballs=[Fireball(x=x,y=y,radius=r,vx=0,vy=0,color=c,trail=list(tr)) for x,y,r,c,tr in snap["fireballs"]]
+    hazards.spinning_lasers=[SpinningLaser(cx=cx,cy=cy,angle=a,length=ln,thickness=th,kill_radius=kr,color=c,arms=arm,warmup_frames=wf) for cx,cy,a,ln,th,kr,c,arm,wf in snap["spinning_lasers"]]
+    hazards.death_walls=[DeathWall(side=s,position=p,color=c,warmup_frames=wf,retreating=ret) for s,p,c,wf,ret in snap["death_walls"]]
+    # *** UPDATED: now restores kill_thickness too ***
+    hazards.shockwaves=[Shockwave(cx=cx,cy=cy,current_radius=cr,thickness=th,color=c,kill_thickness=kt) for cx,cy,cr,th,c,kt in snap["shockwaves"]]
+    hazards.meteors=[Meteor(target_x=tx,target_y=ty,current_y=cy_m,x=mx,radius=r,blast_radius=br,exploded=ex,explosion_frame=ef) for tx,ty,cy_m,mx,r,br,ex,ef in snap["meteors"]]
+    hazards.spikes=[Spike(x=x,y=y,radius=r,pulse_phase=pp,warmup_frames=wf) for x,y,r,pp,wf in snap["spikes"]]
+    hazards.lava_zones=[LavaZone(side=s,thickness=th,warmup_frames=wf) for s,th,wf in snap["lava_zones"]]
+    hazards.vortices=[Vortex(x=x,y=y,radius=r,rotation=rot,kill_radius=kr) for x,y,r,rot,kr in snap["vortices"]]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHALLENGE POOL
+# ─────────────────────────────────────────────────────────────────────────────
+
+ALL_CHALLENGES: List[Dict[str, Any]] = []
+
+def _register(name, label, category):
+    def decorator(func):
+        ALL_CHALLENGES.append({"name":name,"emoji":label,"category":category,"apply":func})
+        return func
+    return decorator
+
+@_register("FIREBALL FRENZY","[FIRE]","fireball")
+def _ch_fireball(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    for _ in range(rng.randint(3,6)):
+        angle=rng.uniform(0,2*math.pi); speed=rng.uniform(5.0,8.0)
+        hazards.fireballs.append(Fireball(
+            x=rng.uniform(ax1+40,ax2-40),y=rng.uniform(ay1+40,ay2-40),
+            vx=math.cos(angle)*speed,vy=math.sin(angle)*speed,
+            radius=rng.uniform(16,26),lifetime=rng.uniform(10,18),
+            color=(255,rng.randint(50,150),0)))
+
+@_register("SPINNING DEATH RAY","[ZAP]","laser")
+def _ch_spinning_laser(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
+    length=min(ax2-ax1,ay2-ay1)*0.35
+    hazards.spinning_lasers.append(SpinningLaser(
+        cx=cx+rng.uniform(-30,30),cy=cy+rng.uniform(-30,30),
+        angle=rng.uniform(0,2*math.pi),length=length,
+        speed=rng.uniform(0.030,0.060),
+        thickness=rng.uniform(8,14),kill_radius=rng.uniform(10,16),
+        arms=rng.choice([2,2,3]),
+        warmup_frames=30,lifetime_frames=700))
+
+@_register("DEATH WALL","[WALL]","wall")
+def _ch_death_wall(balls,arena,hazards,rng,config,**kw):
+    sides=rng.sample(["left","right","top","bottom"],rng.randint(2,3))
+    for side in sides:
+        hazards.death_walls.append(DeathWall(
+            side=side,speed=rng.uniform(0.5,1.0),
+            max_position=rng.uniform(80,180),
+            color=(rng.randint(180,255),0,0),lifetime_frames=500))
+
+@_register("SHOCKWAVE BLAST","[BOOM]","shockwave")
+def _ch_shockwave(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena; thick=rng.uniform(14,24)
+    arena_min=min(ax2-ax1,ay2-ay1)
+    hazards.shockwaves.append(Shockwave(
+        cx=rng.uniform(ax1+50,ax2-50),cy=rng.uniform(ay1+50,ay2-50),
+        speed=rng.uniform(4.0,7.0),
+        max_radius=arena_min*rng.uniform(0.35,0.50),
+        thickness=thick,kill_thickness=thick,
+        color=(255,255,rng.randint(50,200))))
+
+@_register("METEOR SHOWER","[COMET]","meteor")
+def _ch_meteor(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    for _ in range(rng.randint(6,12)):
+        tx=rng.uniform(ax1+30,ax2-30); ty=rng.uniform(ay1+30,ay2-30)
+        hazards.meteors.append(Meteor(
+            target_x=tx,target_y=ty,current_y=ay1-rng.uniform(60,200),x=tx,
+            speed=rng.uniform(7,12),
+            radius=rng.uniform(12,20),blast_radius=rng.uniform(50,90)))
+
+@_register("SPIKE MINEFIELD","[SPIKES]","spikes")
+def _ch_spikes(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena; alive_balls=[b for b in balls if b.alive]
+    for _ in range(rng.randint(12,20)):
+        sr=rng.uniform(12,24)
+        sx,sy=rng.uniform(ax1+30,ax2-30),rng.uniform(ay1+30,ay2-30)
+        for _ in range(20):
+            sx=rng.uniform(ax1+30,ax2-30); sy=rng.uniform(ay1+30,ay2-30)
+            if not any(math.hypot(b.x-sx,b.y-sy)<b.radius+sr+15 for b in alive_balls): break
+        hazards.spikes.append(Spike(x=sx,y=sy,radius=sr,
+            pulse_phase=rng.uniform(0,math.pi*2),warmup_frames=20))
+
+@_register("LAVA SURGE","[LAVA]","lava")
+def _ch_lava(balls,arena,hazards,rng,config,**kw):
+    existing_sides={lz.side for lz in hazards.lava_zones}
+    available=[s for s in ["bottom","left","right","top"] if s not in existing_sides]
+    if available:
+        for side in rng.sample(available,min(len(available),rng.randint(2,3))):
+            hazards.lava_zones.append(LavaZone(
+                side=side,grow_speed=rng.uniform(0.12,0.25),
+                max_thickness=rng.uniform(60,120),warmup_frames=40))
+    else:
+        for lz in hazards.lava_zones:
+            arena_w=arena[2]-arena[0]; arena_h=arena[3]-arena[1]
+            lz.max_thickness=min(lz.max_thickness+rng.uniform(20,40),min(arena_w,arena_h)*0.30)
+            lz.grow_speed=min(lz.grow_speed+0.05,0.25)
+
+@_register("BLACK HOLE","[VOID]","vortex")
+def _ch_vortex(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    hazards.vortices.append(Vortex(
+        x=rng.uniform(ax1+60,ax2-60),y=rng.uniform(ay1+60,ay2-60),
+        radius=rng.uniform(90,140),strength=rng.uniform(2.0,4.0),
+        kill_radius=rng.uniform(12,20),lifetime_frames=700))
+
+@_register("SPEED BOOST","[SPEED]","speed")
+def _ch_speed(balls,arena,hazards,rng,config,**kw):
+    for b in balls:
+        if b.alive: b.vx*=rng.uniform(2.2,3.0); b.vy*=rng.uniform(2.2,3.0)
+
+@_register("TELEPORT SHUFFLE","[TP]","teleport")
+def _ch_teleport(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    for b in balls:
+        if not b.alive: continue
+        nx,ny=b.x,b.y
+        for _ in range(25):
+            cx_t=rng.uniform(ax1+30,ax2-30); cy_t=rng.uniform(ay1+30,ay2-30)
+            safe=True
+            for lz in hazards.lava_zones:
+                if lz.warmup_frames>0: continue
+                th=lz.thickness+b.radius+15
+                if lz.side=="bottom" and cy_t+b.radius>ay2-th: safe=False; break
+                if lz.side=="top" and cy_t-b.radius<ay1+th: safe=False; break
+                if lz.side=="left" and cx_t-b.radius<ax1+th: safe=False; break
+                if lz.side=="right" and cx_t+b.radius>ax2-th: safe=False; break
+            if not safe: continue
+            for sp in hazards.spikes:
+                if sp.warmup_frames>0: continue
+                if math.hypot(cx_t-sp.x,cy_t-sp.y)<sp.radius+b.radius+10: safe=False; break
+            if not safe: continue
+            for v in hazards.vortices:
+                if math.hypot(cx_t-v.x,cy_t-v.y)<v.kill_radius+b.radius+15: safe=False; break
+            if safe: nx,ny=cx_t,cy_t; break
+        b.x=nx; b.y=ny; b.invincible_timer=max(b.invincible_timer,1.0)
+
+@_register("SCATTER SHOT","[SCATTER]","scatter")
+def _ch_scatter(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
+    for b in balls:
+        if b.alive:
+            dx,dy=b.x-cx,b.y-cy; dist=math.hypot(dx,dy)+0.01
+            force=rng.uniform(6,10)
+            b.vx+=(dx/dist)*force; b.vy+=(dy/dist)*force
+
+@_register("IMPLOSION","[SWIRL]","implode")
+def _ch_implode(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
+    for b in balls:
+        if b.alive:
+            dx,dy=cx-b.x,cy-b.y; dist=math.hypot(dx,dy)+0.01
+            force=rng.uniform(5,9)
+            b.vx+=(dx/dist)*force; b.vy+=(dy/dist)*force
+
+@_register("EARTHQUAKE","[QUAKE]","earthquake")
+def _ch_earthquake(balls,arena,hazards,rng,config,**kw):
+    for b in balls:
+        if b.alive: b.vx+=rng.uniform(-7,7); b.vy+=rng.uniform(-7,7)
+
+@_register("DOUBLE FIREBALL + LASER","[FIRE+ZAP]","combo1")
+def _ch_combo1(balls,arena,hazards,rng,config,**kw):
+    _ch_fireball(balls,arena,hazards,rng,config,**kw)
+    _ch_spinning_laser(balls,arena,hazards,rng,config,**kw)
+
+@_register("METEOR + SHOCKWAVE","[COMET+BOOM]","combo2")
+def _ch_combo2(balls,arena,hazards,rng,config,**kw):
+    _ch_meteor(balls,arena,hazards,rng,config,**kw)
+    _ch_shockwave(balls,arena,hazards,rng,config,**kw)
+
+@_register("TRIPLE THREAT","[TRIPLE]","combo3")
+def _ch_combo3(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    for _ in range(3):
+        angle=rng.uniform(0,2*math.pi)
+        hazards.fireballs.append(Fireball(x=(ax1+ax2)/2,y=(ay1+ay2)/2,
+            vx=math.cos(angle)*7,vy=math.sin(angle)*7,radius=22,lifetime=15))
+    for _ in range(10):
+        hazards.spikes.append(Spike(rng.uniform(ax1+20,ax2-20),rng.uniform(ay1+20,ay2-20),
+            rng.uniform(12,22),0,warmup_frames=20))
+    sides=rng.sample(["left","right","top","bottom"],2)
+    for side in sides:
+        hazards.death_walls.append(DeathWall(side=side,speed=0.7,max_position=120,lifetime_frames=500))
+
+@_register("INVINCIBILITY ROULETTE","[SHIELD]","invincible")
+def _ch_invincible(balls,arena,hazards,rng,config,**kw):
+    alive=[b for b in balls if b.alive]
+    for b in rng.sample(alive,min(len(alive),max(1,len(alive)//5))):
+        b.invincible_timer=rng.uniform(3.0,6.0)
+
+@_register("ARENA SHRINK","[SHRINK]","shrink")
+def _ch_shrink(balls,arena,hazards,rng,config,**kw):
+    config.arena_margin_end=min(config.arena_margin_end+60,min(config.width,config.height)//2-50)
+
+@_register("FREEZE FRAME","[FREEZE]","freeze")
+def _ch_freeze(balls,arena,hazards,rng,config,**kw):
+    for b in balls:
+        if b.alive: b.vx*=0.08; b.vy*=0.08
+
+@_register("REVERSE DIRECTION","[REVERSE]","reverse")
+def _ch_reverse(balls,arena,hazards,rng,config,**kw):
+    for b in balls:
+        if b.alive: b.vx=-b.vx; b.vy=-b.vy
+
+@_register("BUMPER CARS","[BUMPER]","bumper")
+def _ch_bumper(balls,arena,hazards,rng,config,**kw):
+    for b in balls:
+        if b.alive:
+            angle=rng.uniform(0,2*math.pi); spd=rng.uniform(5,9)
+            b.vx=math.cos(angle)*spd; b.vy=math.sin(angle)*spd
+
+@_register("TORNADO","[TWISTER]","tornado")
+def _ch_tornado(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    hazards.vortices.append(Vortex(
+        x=rng.uniform(ax1+60,ax2-60),y=rng.uniform(ay1+60,ay2-60),
+        radius=rng.uniform(100,150),strength=rng.uniform(2.5,4.5),
+        kill_radius=rng.uniform(12,20),lifetime_frames=500))
+    for b in balls:
+        if b.alive: b.vx+=rng.uniform(-4,4); b.vy+=rng.uniform(-4,4)
+
+@_register("THANOS SNAP","[THANOS]","thanos")
+def _ch_thanos(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
+    arena_min=min(ax2-ax1,ay2-ay1)
+    hazards.shockwaves.append(Shockwave(
+        cx=cx,cy=cy,speed=8.0,max_radius=arena_min*0.48,
+        thickness=22,kill_thickness=22,color=(200,100,255)))
+
+print(f"OK: {len(ALL_CHALLENGES)} challenges registered.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHALLENGE ACTIVE DURATIONS (frames at 30fps)
+# ─────────────────────────────────────────────────────────────────────────────
+
+CHALLENGE_ACTIVE_DURATIONS: Dict[str, int] = {
+    "fireball":300,"laser":700,"wall":500,"shockwave":90,"meteor":150,
+    "spikes":450,"lava":600,"vortex":700,"speed":60,"teleport":60,
+    "scatter":60,"implode":60,"earthquake":60,"freeze":90,"reverse":60,
+    "bumper":90,"tornado":500,"thanos":90,"invincible":180,"shrink":120,
+    "combo1":700,"combo2":150,"combo3":500,
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHYSICS ENGINE
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PhysicsEngine:
+    def __init__(self, config, rng=None):
+        self.config=config; self.rng=rng if rng is not None else random.Random()
+
+    def get_arena(self, t):
+        progress=min(1.0,t/self.config.duration)
+        ease=progress*progress
+        margin=(self.config.arena_margin_start+
+                (self.config.arena_margin_end-self.config.arena_margin_start)*ease)
+        cx=self.config.width/2
+        cy=self.config.height/2+40
+        half_size=min(cx,cy)-margin
+        half_size=max(half_size,50)
+        x1=int(cx-half_size); y1=int(cy-half_size)
+        x2=int(cx+half_size); y2=int(cy+half_size)
+        return (x1,y1,x2,y2)
+
+    def update_balls(self, balls, arena, hazards, frame):
+        ax1,ay1,ax2,ay2=arena; dt=1.0/self.config.fps
+        alive_balls=[b for b in balls if b.alive]
+        for ball in alive_balls:
+            if ball.invincible_timer>0: ball.invincible_timer-=dt
+            hazards.apply_vortex_force(ball)
+            ball.trail.append((ball.x,ball.y))
+            if len(ball.trail)>8: ball.trail.pop(0)
+            ball.x+=ball.vx; ball.y+=ball.vy
+            ball.vx+=self.rng.gauss(0,0.08); ball.vy+=self.rng.gauss(0,0.08)
+            speed=math.hypot(ball.vx,ball.vy)
+            max_speed=9.0
+            if speed>max_speed: ball.vx=ball.vx/speed*max_speed; ball.vy=ball.vy/speed*max_speed
+            r=ball.radius
+            if ball.x-r<ax1: ball.x=ax1+r; ball.vx=abs(ball.vx)*self.config.bounce_damping
+            if ball.x+r>ax2: ball.x=ax2-r; ball.vx=-abs(ball.vx)*self.config.bounce_damping
+            if ball.y-r<ay1: ball.y=ay1+r; ball.vy=abs(ball.vy)*self.config.bounce_damping
+            if ball.y+r>ay2: ball.y=ay2-r; ball.vy=-abs(ball.vy)*self.config.bounce_damping
+        self._ball_ball_collisions(alive_balls)
+
+    def _ball_ball_collisions(self, balls):
+        n=len(balls)
+        for i in range(n):
+            for j in range(i+1,n):
+                b1,b2=balls[i],balls[j]
+                dx=b2.x-b1.x; dy=b2.y-b1.y; dist=math.hypot(dx,dy)
+                min_dist=b1.radius+b2.radius
+                if dist<min_dist and dist>0.01:
+                    nx=dx/dist; ny=dy/dist; overlap=min_dist-dist
+                    b1.x-=nx*overlap*0.5; b1.y-=ny*overlap*0.5
+                    b2.x+=nx*overlap*0.5; b2.y+=ny*overlap*0.5
+                    dvx=b1.vx-b2.vx; dvy=b1.vy-b2.vy; dot=dvx*nx+dvy*ny
+                    if dot>0:
+                        b1.vx-=dot*nx*self.config.ball_ball_push; b1.vy-=dot*ny*self.config.ball_ball_push
+                        b2.vx+=dot*nx*self.config.ball_ball_push; b2.vy+=dot*ny*self.config.ball_ball_push
+
+print("OK: Physics engine ready.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUDIO GENERATOR
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AudioGenerator:
+    def __init__(self, config):
+        self.config=config; self.temp_dir=os.path.join(config.output_dir,"temp_audio")
+        os.makedirs(self.temp_dir,exist_ok=True)
+
+    def generate(self, total_duration, winner_name, countdown_dur,
+                 death_times, challenge_times, winner_time=None):
+        sr=44100; total_samples=int(total_duration*sr)
+        audio=np.zeros(total_samples,dtype=np.float64)
+        rng_audio=np.random.default_rng(hash(self.config.seed)%(2**31))
+
+        for bt in [0.0,1.0,2.0]: self._add_beep(audio,sr,bt,freq=330,dur_ms=120,vol=0.5)
+        go_time=countdown_dur-0.15
+        self._add_beep(audio,sr,go_time,freq=660,dur_ms=250,vol=0.6)
+        self._add_beep(audio,sr,go_time,freq=830,dur_ms=250,vol=0.35)
+
+        race_start=int(countdown_dur*sr)
+        if winner_time is not None: race_end=int(winner_time*sr)
+        else: race_end=int((total_duration-5.0)*sr)
+        race_end=min(race_end,total_samples)
+
+        bpm=165
+        beat_samples=int(60.0/bpm*sr); half_beat=beat_samples//2
+
+        kick_len=int(0.10*sr); kick_t=np.arange(kick_len,dtype=np.float64)/sr
+        kick=np.sin(2*np.pi*65*kick_t)*np.exp(-kick_t*35)*0.4
+        snare_len=int(0.05*sr); snare_t=np.arange(snare_len,dtype=np.float64)/sr
+        snare=rng_audio.standard_normal(snare_len)*np.exp(-snare_t*45)*0.15
+        hh_len=int(0.02*sr)
+        hh=rng_audio.standard_normal(hh_len)*np.exp(-np.arange(hh_len,dtype=np.float64)/sr*90)*0.04
+
+        bass_freqs=[131.0,165.0,196.0,131.0]; bass_dur=int(beat_samples*0.75)
+        bass_t_arr=np.arange(bass_dur,dtype=np.float64)/sr; bass_env=np.exp(-bass_t_arr*7)
+        mel_notes=[523,659,784,659,523,587,659,523]; mel_dur=half_beat
+        mel_t_arr=np.arange(mel_dur,dtype=np.float64)/sr; mel_fade=max(1,mel_dur//8)
+        mel_env=np.ones(mel_dur,dtype=np.float64)
+        mel_env[:mel_fade]=np.linspace(0,1,mel_fade); mel_env[-mel_fade:]=np.linspace(1,0,mel_fade)
+        mel_env*=np.exp(-mel_t_arr*5)
+        num_beats=(race_end-race_start)//beat_samples+1; mel_idx=0
+        for i_beat in range(num_beats):
+            pos=race_start+i_beat*beat_samples
+            self._safe_add(audio,pos,kick,total_samples)
+            if i_beat%4 in (1,3): self._safe_add(audio,pos,snare,total_samples)
+            for off in (0,half_beat): self._safe_add(audio,pos+off,hh,total_samples)
+            note_freq=bass_freqs[i_beat%len(bass_freqs)]
+            bass_wave=np.sin(2*np.pi*note_freq*bass_t_arr)*bass_env*0.12
+            self._safe_add(audio,pos,bass_wave,total_samples)
+            for m_off in (0,half_beat):
+                mel_freq=mel_notes[mel_idx%len(mel_notes)]
+                mel_wave=(np.sin(2*np.pi*mel_freq*mel_t_arr)+np.sin(2*np.pi*mel_freq*3*mel_t_arr)*0.25)*mel_env*0.055
+                self._safe_add(audio,pos+m_off,mel_wave,total_samples); mel_idx+=1
+
+        death_thud_len=int(0.08*sr); death_thud_t=np.arange(death_thud_len,dtype=np.float64)/sr
+        death_thud=np.sin(2*np.pi*45*death_thud_t)*np.exp(-death_thud_t*25)*0.3
+        pop_len=int(0.06*sr); pop_t=np.arange(pop_len,dtype=np.float64)/sr
+        pop_freq_sweep=800-pop_t*8000; pop_phase=np.cumsum(pop_freq_sweep/sr)*2*np.pi
+        pop_sound=np.sin(pop_phase)*np.exp(-pop_t*40)*0.15
+        for dt_time in death_times:
+            sample_pos=int(dt_time*sr)
+            self._safe_add(audio,sample_pos,death_thud,total_samples)
+            self._safe_add(audio,sample_pos+int(0.02*sr),pop_sound,total_samples)
+
+        challenge_fanfare_len=int(0.3*sr); challenge_fanfare_t=np.arange(challenge_fanfare_len,dtype=np.float64)/sr
+        challenge_fanfare=(np.sin(2*np.pi*440*challenge_fanfare_t)*0.15+
+            np.sin(2*np.pi*554*challenge_fanfare_t)*0.12+np.sin(2*np.pi*659*challenge_fanfare_t)*0.10)
+        fanfare_env=np.ones(challenge_fanfare_len,dtype=np.float64); fanfare_fade=max(1,challenge_fanfare_len//4)
+        fanfare_env[-fanfare_fade:]=np.linspace(1,0,fanfare_fade); challenge_fanfare*=fanfare_env
+        for ct_time in challenge_times: self._safe_add(audio,int(ct_time*sr),challenge_fanfare,total_samples)
+
+        tension_start=race_start+int((race_end-race_start)*0.65)
+        tension_len=race_end-tension_start
+        if tension_len>0:
+            ten_t=np.arange(tension_len,dtype=np.float64)/sr; progress_t=np.linspace(0.0,1.0,tension_len)
+            freq_sweep=200.0+progress_t*800.0; phase_sweep=np.cumsum(freq_sweep/sr)*2*np.pi
+            self._safe_add(audio,tension_start,np.sin(phase_sweep)*progress_t*0.05,total_samples)
+
+        celeb_start=race_end; celeb_len=total_samples-celeb_start
+        if celeb_len>0:
+            celeb_t=np.arange(celeb_len,dtype=np.float64)/sr
+            victory=(np.sin(2*np.pi*261.63*celeb_t)*0.18+np.sin(2*np.pi*329.63*celeb_t)*0.15+
+                     np.sin(2*np.pi*392.00*celeb_t)*0.13+np.sin(2*np.pi*493.88*celeb_t)*0.10)
+            self._safe_add(audio,celeb_start,victory*np.exp(-celeb_t*0.5),total_samples)
+            cheer_len=min(celeb_len,int(3.0*sr)); cheer_noise=rng_audio.standard_normal(cheer_len)
+            cheer_t_arr=np.arange(cheer_len,dtype=np.float64)/sr; attack=min(int(0.1*sr),cheer_len)
+            cheer_env=np.exp(-cheer_t_arr*0.6)
+            if attack>0: cheer_env[:attack]=np.linspace(0,1,attack)
+            self._safe_add(audio,celeb_start,cheer_noise*cheer_env*0.05,total_samples)
+
+        tts_path=self._generate_tts(winner_name)
+        if tts_path and os.path.exists(tts_path):
+            try:
+                tts_seg=AudioSegment.from_file(tts_path)
+                tts_samples=np.array(tts_seg.get_array_of_samples(),dtype=np.float64)
+                if tts_seg.channels==2: tts_samples=tts_samples[::2]
+                tts_samples=tts_samples/32768.0*0.75
+                if tts_seg.frame_rate!=sr:
+                    ratio_tts=sr/tts_seg.frame_rate; new_len_tts=int(len(tts_samples)*ratio_tts)
+                    tts_samples=np.interp(np.linspace(0,len(tts_samples)-1,new_len_tts),np.arange(len(tts_samples)),tts_samples)
+                tts_start=celeb_start+int(0.8*sr); tts_end=min(tts_start+len(tts_samples),total_samples)
+                actual_tts=tts_end-tts_start
+                if actual_tts>0: audio[tts_start:tts_end]+=tts_samples[:actual_tts]
+            except Exception as e: print(f"Warning: TTS load failed: {e}")
+
+        max_val=np.max(np.abs(audio))
+        if max_val>0: audio=audio/max_val*0.80
+        audio_int16=(audio*32767).astype(np.int16)
+        audio_path=os.path.join(self.temp_dir,"battle_audio.wav")
+        with wave_mod.open(audio_path,'w') as wf:
+            wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(sr); wf.writeframes(audio_int16.tobytes())
+        print(f"OK: Audio generated: {audio_path}")
+        return audio_path
+
+    def _add_beep(self, audio, sr, time_s, freq=440, dur_ms=150, vol=0.5):
+        n=int(sr*dur_ms/1000.0); t=np.arange(n,dtype=np.float64)/sr
+        wave=np.sin(2*np.pi*freq*t)*vol; fade=max(1,int(n*0.1))
+        env=np.ones(n,dtype=np.float64); env[:fade]=np.linspace(0,1,fade); env[-fade:]=np.linspace(1,0,fade)
+        wave*=env; self._safe_add(audio,int(time_s*sr),wave,len(audio))
+
+    @staticmethod
+    def _safe_add(audio, start, data, total):
+        if start<0: return
+        end=min(start+len(data),total); actual=end-start
+        if actual>0: audio[start:end]+=data[:actual]
+
+    def _generate_tts(self, name):
+        try:
+            tts=gTTS(text=f"{name} wins! Last ball standing!",lang='en',slow=False)
+            path=os.path.join(self.temp_dir,"winner_tts.mp3"); tts.save(path); return path
+        except Exception as e: print(f"Warning: TTS failed: {e}"); return None
+
+    def cleanup(self):
+        for f in glob.glob(os.path.join(self.temp_dir,"*")):
+            try: os.remove(f)
+            except OSError: pass
+
+print("OK: Audio generator ready.")
+# ─────────────────────────────────────────────────────────────────────────────
+# RENDERER — WINNER IMAGE 15-20% BIGGER
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Renderer:
+    def __init__(self, config, character_images):
+        self.config=config; self.w=config.width; self.h=config.height
+        self._font_cache: Dict[int,Any]={}
+        self._death_particles: List[Dict]=[]
+        self._bubble_particles: List[Dict]=[]
+        self._event_display: List[Tuple[int,str]]=[]
+        self._challenge_banner: Optional[Tuple[int,str,str]]=None
+        self._character_images=character_images
+        self._elimination_feed: List[Tuple[int,str,Tuple[int,int,int]]]=[]
+        self._screen_shake: float=0.0
+        self._background_img: Optional[Image.Image]=None
+        if config.background_image_path and os.path.exists(config.background_image_path):
+            try:
+                bg=Image.open(config.background_image_path).convert("RGB")
+                self._background_img=bg.resize((config.width,config.height),Image.LANCZOS)
+            except Exception: self._background_img=None
+
+    def _font(self, size):
+        size=max(size,8)
+        if size not in self._font_cache:
+            for path in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"]:
+                if os.path.exists(path):
+                    self._font_cache[size]=ImageFont.truetype(path,size); return self._font_cache[size]
+            self._font_cache[size]=ImageFont.load_default()
+        return self._font_cache[size]
+
+    def _outlined_text(self, draw, pos, text, font, fill, outline=(0,0,0), outline_w=3):
+        x,y=pos
+        for dx in range(-outline_w,outline_w+1):
+            for dy in range(-outline_w,outline_w+1):
+                if dx*dx+dy*dy<=outline_w*outline_w: draw.text((x+dx,y+dy),text,font=font,fill=outline)
+        draw.text((x,y),text,font=font,fill=fill)
+
+    def add_event_text(self, frame, text, duration_frames=90):
+        self._event_display.append((frame+duration_frames,text))
+
+    def set_challenge_banner(self, frame, name, label, duration_frames=90):
+        self._challenge_banner=(frame+duration_frames,name,label)
+
+    def trigger_screen_shake(self, intensity=6.0):
+        self._screen_shake=max(self._screen_shake,intensity)
+
+    def add_death_particles(self, x, y, color, frame):
+        for _ in range(18):
+            angle=random.uniform(0,2*math.pi); speed=random.uniform(2,9)
+            self._death_particles.append({"x":x,"y":y,"vx":math.cos(angle)*speed,
+                "vy":math.sin(angle)*speed,"color":color,"life":1.0,"size":random.uniform(2,7)})
+
+    def add_bubble_explosion(self, x, y, color, frame):
+        for _ in range(random.randint(8,16)):
+            angle=random.uniform(0,2*math.pi); speed=random.uniform(1.0,4.5); br=random.uniform(4,14)
+            self._bubble_particles.append({"x":x,"y":y,"vx":math.cos(angle)*speed,
+                "vy":math.sin(angle)*speed-random.uniform(0.5,2.0),"radius":br,
+                "max_radius":br*random.uniform(1.3,2.0),"color":color,"life":1.0,
+                "decay":random.uniform(0.015,0.035),"wobble_phase":random.uniform(0,math.pi*2),
+                "wobble_speed":random.uniform(0.1,0.3)})
+        self.trigger_screen_shake(4.0)
+
+    def add_elimination(self, frame, name, color):
+        self._elimination_feed.append((frame+90,name,color))
+        if len(self._elimination_feed)>5: self._elimination_feed=self._elimination_feed[-5:]
+
+    def render_frame(self, t, frame, balls, arena, hazards, alive_count, total,
+                     winner, phase, selected_challenges,
+                     active_challenge_indices: Set[int],
+                     applied_challenge_indices: Set[int]):
+        w,h=self.w,self.h; ax1,ay1,ax2,ay2=arena
+        shake_x,shake_y=0,0
+        if self._screen_shake>0.5:
+            shake_rng=random.Random(frame*99991)
+            shake_x=int(shake_rng.uniform(-self._screen_shake,self._screen_shake))
+            shake_y=int(shake_rng.uniform(-self._screen_shake,self._screen_shake))
+            self._screen_shake*=0.88
+
+        if self._background_img is not None:
+            img=self._background_img.copy(); dark=Image.new("RGB",(w,h),(0,0,0))
+            img=Image.blend(img,dark,0.4)
+        else:
+            img=Image.new("RGB",(w,h),(10,8,18))
+        draw=ImageDraw.Draw(img)
+
+        if self._background_img is None:
+            grid_c=(25,22,40)
+            for gx in range(0,w,40): draw.line([(gx,0),(gx,h)],fill=grid_c,width=1)
+            for gy in range(0,h,40): draw.line([(0,gy),(w,gy)],fill=grid_c,width=1)
+
+        for row_i in range(max(0,ay1),min(h,ay2)):
+            rp=(row_i-ay1)/max(1,ay2-ay1)
+            rb=int(self.config.arena_color[0]+rp*8); gb=int(self.config.arena_color[1]+rp*5)
+            bb=int(self.config.arena_color[2]+rp*12)
+            draw.line([(ax1,row_i),(ax2,row_i)],fill=(min(255,rb),min(255,gb),min(255,bb)))
+
+        self._render_hazards(draw,img,hazards,arena,frame,t)
+
+        progress=min(1.0,t/self.config.duration)
+        pulse=1.0+0.3*math.sin(t*3); bw=max(2,int(self.config.arena_border_width*pulse))
+        br_c=int(255*(0.5+0.5*progress)); bg_c=int(255*(1.0-progress*0.7)); bb_c=int(255*(1.0-progress*0.8))
+        draw.rectangle([ax1,ay1,ax2,ay2],outline=(br_c,bg_c,bb_c),width=bw)
+        ms=12+int(6*math.sin(t*5))
+        for cx_m,cy_m in [(ax1,ay1),(ax2,ay1),(ax1,ay2),(ax2,ay2)]:
+            draw.rectangle([cx_m-ms//2,cy_m-ms//2,cx_m+ms//2,cy_m+ms//2],fill=(255,50,50))
+
+        self._update_and_render_particles(draw,frame)
+        self._update_and_render_bubbles(draw,img,frame)
+
+        alive_balls=sorted([b for b in balls if b.alive],key=lambda b:b.y)
+        for ball in alive_balls: self._render_ball(draw,img,ball,frame)
+
+        self._render_hud(draw,img,t,frame,alive_count,total,phase,winner,balls,
+                         selected_challenges,active_challenge_indices,applied_challenge_indices)
+        self._render_elimination_feed(draw,frame)
+        self._render_challenge_banner(draw,frame)
+
+        if phase=="countdown": self._render_countdown(draw,t)
+        elif phase=="winner" and winner: img=self._render_winner_screen(img,draw,winner,t,frame)
+
+        if abs(shake_x)>0 or abs(shake_y)>0:
+            shifted=Image.new("RGB",(w,h),(10,8,18)); shifted.paste(img,(shake_x,shake_y)); img=shifted
+        return np.array(img,dtype=np.uint8)
+
+    def _render_ball(self, draw, img, ball, frame):
+        x,y,r=int(ball.x),int(ball.y),ball.radius
+        for i,(tx,ty) in enumerate(ball.trail):
+            af=(i+1)/(len(ball.trail)+1); tr=max(2,int(r*af*0.5))
+            c=tuple(int(v*af*0.4) for v in ball.color)
+            draw.ellipse([int(tx)-tr,int(ty)-tr,int(tx)+tr,int(ty)+tr],fill=c)
+        draw.ellipse([x-r+3,y-r+3,x+r+3,y+r+3],fill=(0,0,0))
+        if ball.invincible_timer>0:
+            gr=r+5+int(math.sin(frame*0.5)*3)
+            draw.ellipse([x-gr,y-gr,x+gr,y+gr],outline=(255,255,100),width=3)
+        draw.ellipse([x-r,y-r,x+r,y+r],fill=ball.color)
+        char_img=self._character_images.get(ball.name)
+        if char_img is not None:
+            diam=r*2
+            if diam>=6:
+                try:
+                    resized=char_img.resize((diam,diam),Image.LANCZOS)
+                    mask=Image.new("L",(diam,diam),0); mask_draw=ImageDraw.Draw(mask)
+                    mask_draw.ellipse([0,0,diam-1,diam-1],fill=255)
+                    img.paste(resized,(x-r,y-r),mask)
+                except Exception: pass
+        draw=ImageDraw.Draw(img)
+        draw.ellipse([x-r,y-r,x+r,y+r],outline=ball.outline_color,width=self.config.ball_outline_width)
+        if r>=8:
+            nf=self._font(max(8,min(12,r-1))); short=ball.name[:8]
+            bbox_n=draw.textbbox((0,0),short,font=nf); tw_n=bbox_n[2]-bbox_n[0]
+            self._outlined_text(draw,(x-tw_n//2,y+r+3),short,nf,(255,255,255),outline_w=2)
+
+    def _render_hazards(self, draw, img, hazards, arena, frame, t):
+        ax1,ay1,ax2,ay2=arena; render_rng=random.Random(frame*31337)
+        for lz in hazards.lava_zones:
+            if lz.thickness<=0: continue
+            th=int(lz.thickness); flicker=int(render_rng.uniform(-8,8))
+            in_warmup=lz.warmup_frames>0
+            lava_colors=[(200,100+flicker,0),(220,160+flicker,0),(240,200,30)] if in_warmup else [(255,60+flicker,0),(255,120+flicker,0),(255,180,50)]
+            if lz.side=="bottom":
+                for row in range(min(th,ay2-ay1)):
+                    yl=ay2-th+row
+                    if ay1<=yl<=ay2:
+                        ci=min(len(lava_colors)-1,int(row/max(1,th)*len(lava_colors)))
+                        draw.line([(ax1+1,yl),(ax2-1,yl)],fill=lava_colors[ci])
+            elif lz.side=="top":
+                for row in range(min(th,ay2-ay1)):
+                    yl=ay1+row
+                    if ay1<=yl<=ay2:
+                        ci=min(len(lava_colors)-1,int((1.0-row/max(1,th))*len(lava_colors)))
+                        draw.line([(ax1+1,yl),(ax2-1,yl)],fill=lava_colors[ci])
+            elif lz.side=="left":
+                for col in range(min(th,ax2-ax1)):
+                    xl=ax1+col
+                    if ax1<=xl<=ax2:
+                        ci=min(len(lava_colors)-1,int((1.0-col/max(1,th))*len(lava_colors)))
+                        draw.line([(xl,ay1+1),(xl,ay2-1)],fill=lava_colors[ci])
+            elif lz.side=="right":
+                for col in range(min(th,ax2-ax1)):
+                    xl=ax2-th+col
+                    if ax1<=xl<=ax2:
+                        ci=min(len(lava_colors)-1,int(col/max(1,th)*len(lava_colors)))
+                        draw.line([(xl,ay1+1),(xl,ay2-1)],fill=lava_colors[ci])
+            if th>5:
+                for _ in range(3):
+                    if lz.side=="bottom": bx=render_rng.randint(ax1+5,max(ax1+6,ax2-5)); by=ay2-render_rng.randint(2,max(3,th))
+                    elif lz.side=="top": bx=render_rng.randint(ax1+5,max(ax1+6,ax2-5)); by=ay1+render_rng.randint(2,max(3,th))
+                    elif lz.side=="left": bx=ax1+render_rng.randint(2,max(3,th)); by=render_rng.randint(ay1+5,max(ay1+6,ay2-5))
+                    else: bx=ax2-render_rng.randint(2,max(3,th)); by=render_rng.randint(ay1+5,max(ay1+6,ay2-5))
+                    bbr=render_rng.randint(2,5); draw.ellipse([bx-bbr,by-bbr,bx+bbr,by+bbr],fill=(255,220,80))
+        for sp in hazards.spikes:
+            pulse=1.0+0.15*math.sin(sp.pulse_phase); sr_s=int(sp.radius*pulse)
+            sx,sy=int(sp.x),int(sp.y); in_warmup=sp.warmup_frames>0
+            points=[]
+            for ip in range(16):
+                a=ip*math.pi/8-math.pi/2; r_s=sr_s if ip%2==0 else sr_s//2
+                points.append((sx+int(math.cos(a)*r_s),sy+int(math.sin(a)*r_s)))
+            if len(points)>=3:
+                draw.polygon(points,fill=(150,150,200) if in_warmup else (200,200,200),
+                    outline=(255,220,0) if in_warmup else (255,80,80),width=2)
+            draw.ellipse([sx-sr_s-3,sy-sr_s-3,sx+sr_s+3,sy+sr_s+3],
+                outline=(255,220,0) if in_warmup else (255,50,50),width=1)
+        for fb in hazards.fireballs:
+            for i_t,(tx,ty) in enumerate(fb.trail):
+                af=(i_t+1)/(len(fb.trail)+1); tr=max(2,int(fb.radius*af*0.8))
+                fc=tuple(int(c*af*0.6) for c in fb.color)
+                draw.ellipse([int(tx)-tr,int(ty)-tr,int(tx)+tr,int(ty)+tr],fill=fc)
+            gr=int(fb.radius*1.6); fbx,fby=int(fb.x),int(fb.y)
+            draw.ellipse([fbx-gr,fby-gr,fbx+gr,fby+gr],fill=(255,80,0))
+            fbr=int(fb.radius); draw.ellipse([fbx-fbr,fby-fbr,fbx+fbr,fby+fbr],fill=fb.color,outline=(255,255,100),width=2)
+            cr=max(2,fbr//2); draw.ellipse([fbx-cr,fby-cr,fbx+cr,fby+cr],fill=(255,255,200))
+        for sl in hazards.spinning_lasers:
+            scx,scy=int(sl.cx),int(sl.cy); in_warmup=sl.warmup_frames>0
+            beam_color=(255,200,0) if in_warmup else sl.color; glow_color=(200,150,0) if in_warmup else (255,50,50)
+            for arm_i in range(sl.arms):
+                arm_angle=sl.angle+arm_i*(2*math.pi/sl.arms)
+                ex=int(sl.cx+math.cos(arm_angle)*sl.length); ey=int(sl.cy+math.sin(arm_angle)*sl.length)
+                draw.line([(scx,scy),(ex,ey)],fill=glow_color,width=int(sl.thickness+8))
+                draw.line([(scx,scy),(ex,ey)],fill=beam_color,width=int(sl.thickness))
+                draw.line([(scx,scy),(ex,ey)],fill=(255,255,200) if in_warmup else (255,200,200),width=max(1,int(sl.thickness//3)))
+            draw.ellipse([scx-10,scy-10,scx+10,scy+10],fill=(255,200,100) if in_warmup else (255,100,100),outline=(255,255,255),width=2)
+        for dw in hazards.death_walls:
+            if dw.position<=0: continue
+            pos=int(dw.position)
+            if dw.side=="left":
+                draw.rectangle([ax1,ay1,ax1+pos,ay2],fill=dw.color)
+                for sy_s in range(ay1,ay2,20): draw.rectangle([ax1+pos-6,sy_s,ax1+pos,sy_s+10],fill=(255,255,0))
+            elif dw.side=="right":
+                draw.rectangle([ax2-pos,ay1,ax2,ay2],fill=dw.color)
+                for sy_s in range(ay1,ay2,20): draw.rectangle([ax2-pos,sy_s,ax2-pos+6,sy_s+10],fill=(255,255,0))
+            elif dw.side=="top":
+                draw.rectangle([ax1,ay1,ax2,ay1+pos],fill=dw.color)
+                for sx_s in range(ax1,ax2,20): draw.rectangle([sx_s,ay1+pos-6,sx_s+10,ay1+pos],fill=(255,255,0))
+            elif dw.side=="bottom":
+                draw.rectangle([ax1,ay2-pos,ax2,ay2],fill=dw.color)
+                for sx_s in range(ax1,ax2,20): draw.rectangle([sx_s,ay2-pos,sx_s+10,ay2-pos+6],fill=(255,255,0))
+        for sw in hazards.shockwaves:
+            cr_s=int(sw.current_radius)
+            if cr_s<2: continue
+            scx,scy=int(sw.cx),int(sw.cy); th_s=max(2,int(sw.thickness))
+            draw.ellipse([scx-cr_s,scy-cr_s,scx+cr_s,scy+cr_s],outline=sw.color,width=th_s)
+            inner_r=max(1,cr_s-th_s//2)
+            draw.ellipse([scx-inner_r,scy-inner_r,scx+inner_r,scy+inner_r],outline=(255,255,255),width=max(1,th_s//3))
+        for m_obj in hazards.meteors:
+            mtx,mty=int(m_obj.target_x),int(m_obj.target_y)
+            if not m_obj.exploded:
+                wr=int(m_obj.blast_radius)
+                draw.ellipse([mtx-wr,mty-wr,mtx+wr,mty+wr],outline=(255,50,50),width=2)
+                draw.line([(mtx-8,mty-8),(mtx+8,mty+8)],fill=(255,50,50),width=2)
+                draw.line([(mtx-8,mty+8),(mtx+8,mty-8)],fill=(255,50,50),width=2)
+                mx=int(m_obj.x); my=int(m_obj.current_y); mr=int(m_obj.radius)
+                if my>ay1-200:
+                    draw.ellipse([mx-mr,my-mr,mx+mr,my+mr],fill=(180,80,0),outline=(255,150,50),width=2)
+                    for t_i in range(5):
+                        ty_m=my-t_i*8-mr; tr_m=max(1,mr-t_i*2); tc=(255,max(0,200-t_i*40),0)
+                        draw.ellipse([mx-tr_m,ty_m-tr_m,mx+tr_m,ty_m+tr_m],fill=tc)
+            else:
+                age=frame-m_obj.explosion_frame
+                if age<30:
+                    ep=age/30.0; er=int(m_obj.blast_radius*min(1.0,ep*2)); alpha_f=1.0-ep
+                    exp_colors=[(255,255,200),(255,180,50),(255,80,0)]
+                    ci_e=min(len(exp_colors)-1,int(ep*len(exp_colors)))
+                    ec=tuple(int(v*alpha_f) for v in exp_colors[ci_e])
+                    if er>0: draw.ellipse([mtx-er,mty-er,mtx+er,mty+er],fill=ec,outline=(255,100,0))
+        for v in hazards.vortices:
+            vx,vy=int(v.x),int(v.y); vr=int(v.radius)
+            for ring in range(5,vr,12):
+                c_v=(min(255,80+ring),30,min(255,180+ring//2))
+                for seg in range(16):
+                    a1=v.rotation+seg*math.pi/8+ring*0.06; a2=a1+math.pi/16
+                    x1_v=vx+int(math.cos(a1)*ring); y1_v=vy+int(math.sin(a1)*ring)
+                    x2_v=vx+int(math.cos(a2)*ring); y2_v=vy+int(math.sin(a2)*ring)
+                    draw.line([(x1_v,y1_v),(x2_v,y2_v)],fill=c_v,width=2)
+            kr=int(v.kill_radius)
+            draw.ellipse([vx-kr-4,vy-kr-4,vx+kr+4,vy+kr+4],fill=(180,0,0),outline=(255,50,50),width=3)
+            draw.ellipse([vx-kr,vy-kr,vx+kr,vy+kr],fill=(255,0,0),outline=(255,180,0),width=2)
+
+    def _update_and_render_particles(self, draw, frame):
+        surviving=[]
+        for p in self._death_particles:
+            p["x"]+=p["vx"]; p["y"]+=p["vy"]; p["vy"]+=0.15; p["life"]-=0.04
+            if p["life"]>0:
+                sz=max(1,int(p["size"]*p["life"])); c=tuple(max(0,int(v*p["life"])) for v in p["color"])
+                px,py=int(p["x"]),int(p["y"]); draw.ellipse([px-sz,py-sz,px+sz,py+sz],fill=c); surviving.append(p)
+        self._death_particles=surviving
+
+    def _update_and_render_bubbles(self, draw, img, frame):
+        surviving=[]
+        for b in self._bubble_particles:
+            b["x"]+=b["vx"]; b["y"]+=b["vy"]; b["vy"]-=0.08; b["vx"]*=0.98; b["vy"]*=0.98
+            b["life"]-=b["decay"]; b["wobble_phase"]+=b["wobble_speed"]
+            wobble=math.sin(b["wobble_phase"])*2.0; life=b["life"]
+            if life>0.7: cur_r=b["radius"]+(b["max_radius"]-b["radius"])*(1.0-life)/0.3
+            elif life>0: cur_r=b["max_radius"]*(life/0.7)
+            else: cur_r=0
+            if life>0 and cur_r>1:
+                bx_b=int(b["x"]+wobble); by_b=int(b["y"]); cr=max(1,int(cur_r))
+                bf=tuple(min(255,c+40) for c in b["color"])
+                draw.ellipse([bx_b-cr,by_b-cr,bx_b+cr,by_b+cr],outline=bf,width=max(1,cr//4))
+                hr=max(1,cr//3); hx,hy=bx_b-cr//4,by_b-cr//4
+                hc=tuple(min(255,c+120) for c in b["color"])
+                draw.ellipse([hx-hr,hy-hr,hx+hr,hy+hr],fill=hc); surviving.append(b)
+        self._bubble_particles=surviving
+
+    def _render_elimination_feed(self, draw, frame):
+        self._elimination_feed=[(e,n,c) for e,n,c in self._elimination_feed if e>frame]
+        if not self._elimination_feed: return
+        ff=self._font(14); xp=self.w-210; yp=180
+        for i,(exp,name,color) in enumerate(self._elimination_feed[-4:]):
+            remaining=exp-frame; af=min(1.0,remaining/30.0)
+            draw.ellipse([xp,yp+i*22,xp+10,yp+i*22+10],fill=color)
+            tc=tuple(int(200*af) for _ in range(3))
+            draw.text((xp+14,yp+i*22-2),f"X {name[:12]}",font=ff,fill=tc)
+
+    def _render_challenge_banner(self, draw, frame):
+        if self._challenge_banner is None: return
+        expire,name,label=self._challenge_banner
+        if frame>expire: self._challenge_banner=None; return
+        remaining=expire-frame; total_dur=90
+        if remaining>total_dur-10: slide=(total_dur-remaining)/10.0
+        elif remaining<15: slide=remaining/15.0
+        else: slide=1.0
+        w=self.w; bw_b=500; bh_b=70; bx_b=int((w-bw_b)/2); by_b=int(220+(1.0-slide)*100)
+        draw.rounded_rectangle([bx_b,by_b,bx_b+bw_b,by_b+bh_b],radius=15,fill=(20,20,50))
+        draw.rounded_rectangle([bx_b,by_b,bx_b+bw_b,by_b+bh_b],radius=15,outline=(255,200,50),width=3)
+        hf=self._font(18)
+        self._outlined_text(draw,(bx_b+15,by_b+5),">> NEW CHALLENGE! <<",hf,(255,200,50),outline_w=2)
+        nf=self._font(26); ct=f"[ {name} ]"; bbox_c=draw.textbbox((0,0),ct,font=nf)
+        tw_c=bbox_c[2]-bbox_c[0]; nx=bx_b+(bw_b-tw_c)//2
+        self._outlined_text(draw,(nx,by_b+34),ct,nf,(255,255,255),outline_w=3)
+
+    def _render_hud(self, draw, img, t, frame, alive, total, phase, winner,
+                    balls, selected_challenges,
+                    active_challenge_indices: Set[int],
+                    applied_challenge_indices: Set[int]):
+        w,h=self.w,self.h
+        if phase=="countdown": return
+        tf=self._font(30); title=">> BRAINROT BATTLE ROYALE <<"
+        bbox_t=draw.textbbox((0,0),title,font=tf); tw_t=bbox_t[2]-bbox_t[0]
+        self._outlined_text(draw,((w-tw_t)//2,12),title,tf,(255,255,255))
+
+        cfs=52
+        if alive<=10: cfs=int(52*(1.0+0.15*math.sin(frame*0.3)))
+        cf=self._font(cfs); ct=str(alive); bbox_c=draw.textbbox((0,0),ct,font=cf); tw_c=bbox_c[2]-bbox_c[0]
+        if alive>50: cc=(100,255,100)
+        elif alive>20: cc=(255,255,100)
+        elif alive>5: cc=(255,150,50)
+        else: cc=(255,50,50)
+        self._outlined_text(draw,((w-tw_c)//2,52),ct,cf,cc,outline_w=4)
+        lf=self._font(22); self._outlined_text(draw,((w-42)//2,108),"ALIVE",lf,(200,200,200))
+
+        chf=self._font(13); chf_h=self._font(15); cx_ch,cy_ch=8,155
+        self._outlined_text(draw,(cx_ch,cy_ch),"CHALLENGES:",chf_h,(255,200,100),outline_w=2)
+        cy_ch+=20
+
+        for idx, ch in enumerate(selected_challenges):
+            is_active  = idx in active_challenge_indices
+            is_applied = idx in applied_challenge_indices
+            if is_active:
+                pulse_f = 0.5 + 0.5 * math.sin(frame * 0.25)
+                r_glow  = 255
+                g_glow  = int(160 + 95 * pulse_f)
+                sc      = (r_glow, g_glow, 0)
+                prefix  = ">>>"
+                draw.rounded_rectangle(
+                    [cx_ch - 2, cy_ch - 1, cx_ch + 200, cy_ch + 15],
+                    radius=4, fill=(50, 40, 0))
+                draw.rectangle(
+                    [cx_ch - 2, cy_ch - 1, cx_ch, cy_ch + 15],
+                    fill=(r_glow, g_glow, 0))
+            elif is_applied:
+                sc, prefix = (100, 100, 100), "[X]"
+            else:
+                sc, prefix = (150, 150, 150), "..."
+            self._outlined_text(
+                draw, (cx_ch + 4, cy_ch),
+                f"{prefix} {ch['emoji'][:10]} {ch['name'][:14]}",
+                chf, sc, outline_w=1)
+            cy_ch += 18
+
+        self._event_display=[(e,t_e) for e,t_e in self._event_display if e>frame]
+        y_off=370; ef=self._font(26)
+        for _,txt in self._event_display[-3:]:
+            bbox_e=draw.textbbox((0,0),txt,font=ef); tw_e=bbox_e[2]-bbox_e[0]
+            self._outlined_text(draw,((w-tw_e)//2,y_off),txt,ef,(255,220,50),outline_w=3); y_off+=34
+
+        pp=min(1.0,t/self.config.duration)
+        if 0.25<pp<0.30 and alive>30:
+            hf2=self._font(34); hook="WHO WILL SURVIVE?"
+            bbox_h=draw.textbbox((0,0),hook,font=hf2)
+            self._outlined_text(draw,((w-bbox_h[2]+bbox_h[0])//2,h//2-30),hook,hf2,(255,224,0),outline_w=4)
+        if 0.50<pp<0.55 and alive>10:
+            hf2=self._font(32); hook="CAN ANYONE STOP THEM?"
+            bbox_h=draw.textbbox((0,0),hook,font=hf2)
+            self._outlined_text(draw,((w-bbox_h[2]+bbox_h[0])//2,h//2-30),hook,hf2,(255,150,50),outline_w=4)
+        if 0.75<pp<0.82 and alive>3:
+            hf2=self._font(36); hook="FINAL SHOWDOWN!"
+            bbox_h=draw.textbbox((0,0),hook,font=hf2)
+            self._outlined_text(draw,((w-bbox_h[2]+bbox_h[0])//2,h//2-30),hook,hf2,(255,50,50),outline_w=4)
+
+        if frame%350<160 and phase=="racing":
+            sf=self._font(20); st=">> SUBSCRIBE <<"
+            bbox_s=draw.textbbox((0,0),st,font=sf); tw_s=bbox_s[2]-bbox_s[0]
+            sx=(w-tw_s)//2; sy=h-78
+            draw.rounded_rectangle([sx-8,sy-4,sx+tw_s+8,sy+26],radius=8,fill=(220,0,0))
+            draw.text((sx,sy),st,font=sf,fill=(255,255,255))
+
+        if alive==10:
+            af=self._font(38); at="** TOP 10! **"; bbox_a=draw.textbbox((0,0),at,font=af)
+            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,100,50),outline_w=4)
+        if alive==5:
+            af=self._font(42); at="** FINAL 5! **"; bbox_a=draw.textbbox((0,0),at,font=af)
+            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,50,255),outline_w=4)
+        if alive==2:
+            af=self._font(46); at="** 1v1 FINAL! **"; bbox_a=draw.textbbox((0,0),at,font=af)
+            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,0,0),outline_w=5)
+
+    def _render_countdown(self, draw, t):
+        w,h=self.w,self.h
+        if t<1.0: txt,col="3",(255,100,100)
+        elif t<2.0: txt,col="2",(255,200,100)
+        else: txt,col="GO!",(50,255,50)
+        sub_t=t%1.0; scale=1.0+0.4*(1.0-sub_t); fs=int(140*scale); f=self._font(fs)
+        bbox=draw.textbbox((0,0),txt,font=f); tw,th_t=bbox[2]-bbox[0],bbox[3]-bbox[1]
+        self._outlined_text(draw,((w-tw)//2,(h-th_t)//2-120),txt,f,col,outline_w=5)
+        sf=self._font(28); st="100 BRAINROT BALLS - 1 SURVIVES"
+        bbox_s=draw.textbbox((0,0),st,font=sf)
+        self._outlined_text(draw,((w-bbox_s[2]+bbox_s[0])//2,h//2+40),st,sf,(255,255,255),outline_w=3)
+        sf2=self._font(20); st2="10 CHALLENGES - LAST BALL WINS"
+        bbox_s2=draw.textbbox((0,0),st2,font=sf2)
+        self._outlined_text(draw,((w-bbox_s2[2]+bbox_s2[0])//2,h//2+82),st2,sf2,(255,200,100),outline_w=2)
+
+    # =========================================================================
+    # WINNER SCREEN — IMAGE ~18% BIGGER (was 160 radius, now 189)
+    # =========================================================================
+    def _render_winner_screen(self, img, draw, winner, t, frame):
+        w,h=self.w,self.h
+        overlay=Image.new("RGBA",(w,h),(0,0,0,140)); img=img.convert("RGBA")
+        img=Image.alpha_composite(img,overlay); img=img.convert("RGB"); draw=ImageDraw.Draw(img)
+        hue_w=(frame*0.03)%1.0; rc,gc,bc=[int(c*255) for c in colorsys.hsv_to_rgb(hue_w,1.0,1.0)]
+        draw.rectangle([0,0,w,h],outline=(rc,gc,bc),width=8)
+        conf_rng=random.Random(42)
+        for _ in range(100):
+            cx_c=conf_rng.randint(0,w); cy_c=(conf_rng.randint(0,h)+frame*3)%h
+            cs=conf_rng.randint(5,16); cc=(conf_rng.randint(100,255),conf_rng.randint(100,255),conf_rng.randint(100,255))
+            if conf_rng.random()<0.5: draw.rectangle([cx_c,cy_c,cx_c+cs,cy_c+cs//2],fill=cc)
+            else: draw.ellipse([cx_c,cy_c,cx_c+cs,cy_c+cs],fill=cc)
+        wf=self._font(72); wt="** WINNER! **"; bbox_w=draw.textbbox((0,0),wt,font=wf); tw_w=bbox_w[2]-bbox_w[0]
+        self._outlined_text(draw,((w-tw_w)//2,h//4-20),wt,wf,(255,220,50),outline_w=5)
+
+        # *** CHANGED: big_r from 160 to 189 (~18% bigger) ***
+        big_r=189; cx_w=w//2; cy_w=h//2; bounce=int(abs(math.sin(frame*0.15))*25); cy_w-=bounce
+        hue_ring=(frame*0.02)%1.0
+        for gr_i in range(big_r+40,big_r,-4):
+            glow_hue=(hue_ring+(gr_i-big_r)/120.0)%1.0
+            gc_r,gc_g,gc_b=[int(c*255) for c in colorsys.hsv_to_rgb(glow_hue,1.0,1.0)]
+            alpha=int(180*(gr_i-big_r)/40)
+            glow_img=Image.new("RGBA",(w,h),(0,0,0,0)); gd=ImageDraw.Draw(glow_img)
+            gd.ellipse([cx_w-gr_i,cy_w-gr_i,cx_w+gr_i,cy_w+gr_i],fill=(gc_r,gc_g,gc_b,alpha))
+            img=img.convert("RGBA"); img=Image.alpha_composite(img,glow_img); img=img.convert("RGB")
+        draw=ImageDraw.Draw(img)
+        char_img=self._character_images.get(winner.name)
+        if char_img is not None:
+            diameter=big_r*2; icon_big=char_img.resize((diameter,diameter),Image.LANCZOS)
+            mask=Image.new("L",(diameter,diameter),0); mask_draw=ImageDraw.Draw(mask)
+            mask_draw.ellipse([0,0,diameter-1,diameter-1],fill=255)
+            try: img.paste(icon_big,(cx_w-big_r,cy_w-big_r),mask)
+            except Exception:
+                draw=ImageDraw.Draw(img)
+                draw.ellipse([cx_w-big_r,cy_w-big_r,cx_w+big_r,cy_w+big_r],fill=winner.color)
+        else: draw.ellipse([cx_w-big_r,cy_w-big_r,cx_w+big_r,cy_w+big_r],fill=winner.color)
+        draw=ImageDraw.Draw(img)
+        draw.ellipse([cx_w-big_r,cy_w-big_r,cx_w+big_r,cy_w+big_r],outline=(255,255,255),width=5)
+        draw=ImageDraw.Draw(img)
+        nf=self._font(40); nt=f"[ {winner.name} ]"; bbox_n=draw.textbbox((0,0),nt,font=nf); tw_n=bbox_n[2]-bbox_n[0]
+        self._outlined_text(draw,((w-tw_n)//2,cy_w+big_r+35),nt,nf,winner.color,outline_w=4)
+        sf=self._font(28); st="** LAST BALL STANDING! **"; bbox_s=draw.textbbox((0,0),st,font=sf); tw_s=bbox_s[2]-bbox_s[0]
+        self._outlined_text(draw,((w-tw_s)//2,cy_w+big_r+85),st,sf,(255,255,255),outline_w=3)
+        hf2=self._font(24); ht1="Did you guess right? Comment below!"
+        bbox_h1=draw.textbbox((0,0),ht1,font=hf2)
+        self._outlined_text(draw,((w-bbox_h1[2]+bbox_h1[0])//2,h-140),ht1,hf2,(255,200,100),outline_w=3)
+        hf3=self._font(22); ht2="Drop your favorite in the comments!"
+        bbox_h2=draw.textbbox((0,0),ht2,font=hf3)
+        self._outlined_text(draw,((w-bbox_h2[2]+bbox_h2[0])//2,h-108),ht2,hf3,(255,180,80),outline_w=2)
+        return img
+
+print("OK: Renderer ready (winner image 18% bigger).")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GAME ORCHESTRATOR
+# ─────────────────────────────────────────────────────────────────────────────
+
+class BallBattleRoyale:
+    def __init__(self, config=None):
+        self.config=config or Config()
+        self.rng=random.Random(self.config.seed)
+        print(f"Seed: {self.config.seed}")
+
+    def run(self):
+        config=self.config; fps=config.fps
+        max_frames=int(65*fps)
+        countdown_dur=2.5
+        winner_dur=5.0
+
+        print(f"\n{'='*60}\n  BRAINROT BATTLE ROYALE - v6 CUSTOM + MEGA AVATAR EDITION\n  {len(BRAINROT_NAMES)} names | {len(_AVATAR_STYLES)} styles | GitHub auto-load\n{'='*60}\n")
+
+        name_pool=list(BRAINROT_NAMES); self.rng.shuffle(name_pool)
+        if len(name_pool) < config.num_balls:
+            extra=list(BRAINROT_NAMES); self.rng.shuffle(extra)
+            for i,n in enumerate(extra):
+                if len(name_pool)>=config.num_balls: break
+                name_pool.append(f"{n} #{i+2}")
+        assigned_names=name_pool[:config.num_balls]
+        assigned_chars=[{"name":n} for n in assigned_names]
+        print(f"[*] Selected {len(assigned_names)} random names from {len(BRAINROT_NAMES)} pool.")
+
+        print("[*] Loading avatars (GitHub custom + generated)...")
+        character_images=generate_character_images(assigned_names, size=96, seed=config.seed)
+        print(f"[OK] {len(character_images)} avatars ready.")
+
+        available_categories: Set[str]=set()
+        selected_challenges: List[Dict]=[]
+        pool=list(ALL_CHALLENGES); self.rng.shuffle(pool)
+        for ch in pool:
+            if ch["category"] not in available_categories:
+                selected_challenges.append(ch); available_categories.add(ch["category"])
+            if len(selected_challenges)>=config.challenges_per_game: break
+        if len(selected_challenges)<config.challenges_per_game:
+            remaining=[c for c in pool if c not in selected_challenges]
+            for c in remaining:
+                selected_challenges.append(c)
+                if len(selected_challenges)>=config.challenges_per_game: break
+        self.rng.shuffle(selected_challenges)
+
+        print("Challenges:")
+        for i,ch in enumerate(selected_challenges): print(f"  {i+1}. {ch['emoji']} {ch['name']}")
+
+        colors=generate_vibrant_colors(config.num_balls,self.rng)
+        physics=PhysicsEngine(config,self.rng)
+        arena_init=physics.get_arena(countdown_dur)
+        ax1,ay1,ax2,ay2=arena_init
+
+        balls: List[Ball]=[]
+        cols,rows=10,10
+        for i in range(config.num_balls):
+            col=i%cols; row=i//cols; margin=config.ball_radius*2.5
+            x=ax1+margin+col*((ax2-ax1-2*margin)/max(1,cols-1))
+            y=ay1+margin+row*((ay2-ay1-2*margin)/max(1,rows-1))
+            balls.append(Ball(i,x,y,config.ball_radius,colors[i],self.rng,assigned_chars[i]))
+
+        hazards=HazardManager(config,self.rng)
+        renderer=Renderer(config,character_images)
+
+        print("Simulating...")
+        frame_data: List[Dict]=[]
+        winner: Optional[Ball]=None
+        winner_detected_frame: int=-1
+        forced_kill_timer=0
+        death_times: List[float]=[]
+        challenge_times: List[float]=[]
+
+        race_duration=min(config.duration-countdown_dur-winner_dur, 50.0)
+        interval=race_duration/max(1,len(selected_challenges))
+        challenge_schedule: List[Tuple[float,int]]=[]
+        for idx_s,ch in enumerate(selected_challenges):
+            act_time=countdown_dur+interval*idx_s+self.rng.uniform(0.5,1.5)
+            act_time=min(act_time,countdown_dur+race_duration-2)
+            challenge_schedule.append((act_time,idx_s))
+        challenge_schedule.sort(key=lambda x:x[0])
+        next_challenge_ptr=0
+        original_bounce=config.bounce_damping; original_margin=config.arena_margin_end
+
+        active_challenge_windows: List[Tuple[int, int]] = []
+        applied_challenge_indices: Set[int] = set()
+
+        for frame in range(max_frames):
+            t=frame/fps
+            if winner_detected_frame>=0 and frame>=winner_detected_frame+int(winner_dur*fps): break
+            if t<countdown_dur: phase="countdown"
+            elif winner is not None: phase="winner"
+            else: phase="racing"
+
+            arena=physics.get_arena(t)
+
+            active_challenge_windows = [
+                (ci, ef) for ci, ef in active_challenge_windows if ef > frame
+            ]
+            active_challenge_indices: Set[int] = {ci for ci, ef in active_challenge_windows}
+
+            if phase=="racing":
+                while (next_challenge_ptr<len(challenge_schedule) and
+                       t>=challenge_schedule[next_challenge_ptr][0]):
+                    sched_time,sched_idx=challenge_schedule[next_challenge_ptr]
+                    ch=selected_challenges[sched_idx]
+                    try:
+                        ch["apply"](balls=balls,arena=arena,hazards=hazards,
+                                    rng=self.rng,config=config,frame=frame,renderer=renderer)
+                    except Exception as e: print(f"Warning: {ch['name']}: {e}")
+
+                    duration_f = CHALLENGE_ACTIVE_DURATIONS.get(ch["category"], 120)
+                    active_challenge_windows.append((sched_idx, frame + duration_f))
+                    applied_challenge_indices.add(sched_idx)
+                    active_challenge_indices = {ci for ci, ef in active_challenge_windows if ef > frame}
+
+                    renderer.set_challenge_banner(frame,ch["name"],ch["emoji"])
+                    renderer.add_event_text(frame,f"{ch['emoji']} {ch['name']}!",90)
+                    renderer.trigger_screen_shake(8.0)
+                    challenge_times.append(t)
+                    print(f"  {ch['emoji']} {ch['name']} at t={t:.1f}s (active {duration_f} frames)")
+                    next_challenge_ptr+=1
+
+                hazards.update(t,frame,arena)
+                physics.update_balls(balls,arena,hazards,frame)
+
+                forced_kill_timer+=1
+                for ball in [b for b in balls if b.alive]:
+                    if hazards.check_ball_death(ball,frame,arena):
+                        ball.alive=False; ball.death_frame=frame
+                        renderer.add_death_particles(ball.x,ball.y,ball.color,frame)
+                        renderer.add_bubble_explosion(ball.x,ball.y,ball.color,frame)
+                        renderer.add_elimination(frame,ball.name,ball.color)
+                        death_times.append(t); forced_kill_timer=0
+
+                alive_now=sum(1 for b in balls if b.alive)
+                race_progress=max(0.001,(t-countdown_dur)/race_duration)
+
+                if race_progress>0.40 and alive_now>20 and forced_kill_timer>fps*2:
+                    ax1_a,ay1_a,ax2_a,ay2_a=arena
+                    for _ in range(2):
+                        angle_f=self.rng.uniform(0,2*math.pi)
+                        hazards.fireballs.append(Fireball(
+                            x=self.rng.uniform(ax1_a+30,ax2_a-30),
+                            y=self.rng.uniform(ay1_a+30,ay2_a-30),
+                            vx=math.cos(angle_f)*7,vy=math.sin(angle_f)*7,
+                            radius=22,lifetime=12))
+                    forced_kill_timer=0
+
+                if race_progress>0.70 and alive_now>10 and forced_kill_timer>fps*1.5:
+                    ax1_h,ay1_h,ax2_h,ay2_h=arena; cx_h,cy_h=(ax1_h+ax2_h)/2,(ay1_h+ay2_h)/2
+                    arena_min=min(ax2_h-ax1_h,ay2_h-ay1_h)
+                    hazards.shockwaves.append(Shockwave(
+                        cx=cx_h,cy=cy_h,speed=9.0,
+                        max_radius=arena_min*0.45,thickness=20,kill_thickness=20,
+                        color=(255,100,200)))
+                    forced_kill_timer=0
+
+                alive_now=sum(1 for b in balls if b.alive)
+                if alive_now<=1 and winner is None:
+                    alive_list=[b for b in balls if b.alive]
+                    if alive_list: winner=alive_list[0]
+                    else:
+                        last_dead=max(balls,key=lambda b:b.death_frame); last_dead.alive=True; winner=last_dead
+                    winner_detected_frame=frame
+                    print(f"WINNER: {winner.name} at t={t:.1f}s")
+                alive_count=sum(1 for b in balls if b.alive)
+            elif phase=="countdown": alive_count=config.num_balls
+            else: alive_count=1
+
+            snapshot={
+                "t":t,"frame":frame,"phase":phase,"arena":arena,
+                "alive_count":alive_count,
+                "active_challenge_indices": set(active_challenge_indices),
+                "applied_challenge_indices": set(applied_challenge_indices),
+                "ball_states":[],"hazard_state":_snapshot_hazards(hazards)
+            }
+            for b in balls:
+                snapshot["ball_states"].append({
+                    "id":b.id,"x":b.x,"y":b.y,"vx":b.vx,"vy":b.vy,
+                    "alive":b.alive,"color":b.color,"accent":b.accent,
+                    "outline_color":b.outline_color,"trail":list(b.trail),
+                    "invincible_timer":b.invincible_timer,"radius":b.radius})
+            frame_data.append(snapshot)
+            if frame%(fps*5)==0: print(f"  t={t:.1f}s alive={alive_count}")
+
+        if winner is None:
+            alive_list=[b for b in balls if b.alive]
+            if alive_list: winner=alive_list[0]
+            else: winner=max(balls,key=lambda b:b.death_frame); winner.alive=True
+            winner_detected_frame=max(0,len(frame_data)-int(winner_dur*fps)-1)
+            print(f"WINNER (cap): {winner.name}")
+
+        actual_duration=len(frame_data)/fps
+        winner_time=(winner_detected_frame/fps if winner_detected_frame>=0 else max(0.0,actual_duration-winner_dur))
+        print(f"\nOK: {len(frame_data)} frames | {actual_duration:.1f}s total | {len(death_times)} deaths")
+        gc.collect()
+        config.bounce_damping=original_bounce; config.arena_margin_end=original_margin
+
+        print("Generating audio...")
+        audio_gen=AudioGenerator(config)
+        audio_path=audio_gen.generate(actual_duration,winner.name,countdown_dur,
+                                      death_times,challenge_times,winner_time)
+
+        print("Encoding video...")
+        frame_cache: Dict[int,np.ndarray]={}; cache_limit=3
+
+        def make_frame(t_sec):
+            f_idx=min(int(t_sec*fps),len(frame_data)-1)
+            if f_idx in frame_cache: return frame_cache[f_idx]
+            snap=frame_data[f_idx]
+            for i_b,bs in enumerate(snap["ball_states"]):
+                balls[i_b].x=bs["x"]; balls[i_b].y=bs["y"]
+                balls[i_b].vx=bs["vx"]; balls[i_b].vy=bs["vy"]
+                balls[i_b].alive=bs["alive"]; balls[i_b].trail=bs["trail"]
+                balls[i_b].invincible_timer=bs["invincible_timer"]; balls[i_b].radius=bs["radius"]
+            _restore_hazards(hazards,snap["hazard_state"])
+            rendered=renderer.render_frame(
+                snap["t"], snap["frame"], balls, snap["arena"], hazards,
+                snap["alive_count"], config.num_balls,
+                winner if snap["phase"]=="winner" else None,
+                snap["phase"], selected_challenges,
+                snap["active_challenge_indices"],
+                snap["applied_challenge_indices"],
+            )
+            frame_cache[f_idx]=rendered
+            if len(frame_cache)>cache_limit: oldest=min(frame_cache.keys()); del frame_cache[oldest]
+            if f_idx%100==0 and f_idx>0: gc.collect()
+            return rendered
+
+        timestamp=time.strftime("%Y%m%d_%H%M%S")
+        rand_suffix=''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789',k=4))
+        output_path=os.path.join(config.output_dir,f"brainrot_battle_{timestamp}_{rand_suffix}.mp4")
+
+        video_clip=VideoClip(make_frame,duration=actual_duration).set_fps(fps)
+        if audio_path and os.path.exists(audio_path):
+            try:
+                audio_clip=AudioFileClip(audio_path)
+                if audio_clip.duration>actual_duration: audio_clip=audio_clip.subclip(0,actual_duration)
+                video_clip=video_clip.set_audio(audio_clip); print("OK: Audio attached.")
+            except Exception as e: print(f"Warning: Audio attach failed: {e}")
+
+        video_clip.write_videofile(output_path,fps=fps,codec="libx264",bitrate=config.bitrate,
+                                   audio_codec="aac",logger=None,threads=4)
+        video_clip.close()
+        file_mb=os.path.getsize(output_path)/(1024*1024)
+        print(f"\nOK: Saved: {output_path} ({file_mb:.1f} MB)")
+        audio_gen.cleanup(); frame_cache.clear(); gc.collect()
+        return output_path
+
+print("OK: Game orchestrator ready.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DISPLAY & MAIN
+# ─────────────────────────────────────────────────────────────────────────────
+
+def display_video(video_path):
+    try:
+        from IPython.display import HTML, display
+        import base64
+        if not os.path.exists(video_path): print(f"Not found: {video_path}"); return
+        size_mb=os.path.getsize(video_path)/(1024*1024)
+        if size_mb>50: print(f"Too large for inline ({size_mb:.1f}MB). Download: {video_path}"); return
+        with open(video_path,'rb') as f: data=f.read()
+        b64=base64.b64encode(data).decode('utf-8')
+        html=f"""
+        <div style="text-align:center; margin:20px 0;">
+            <h3>BRAINROT BATTLE ROYALE - v6 CUSTOM + MEGA AVATAR EDITION</h3>
+            <video width="360" height="640" controls autoplay loop
+                   style="border-radius:12px; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                <source src="data:video/mp4;base64,{b64}" type="video/mp4">
+            </video>
+            <p style="color:#888; margin-top:8px;">{os.path.basename(video_path)} ({size_mb:.1f} MB)</p>
+        </div>"""
+        display(HTML(html))
+    except ImportError: print(f"Video saved: {video_path}")
+    except Exception as e: print(f"Display failed: {e} | Saved: {video_path}")
+
+
+def main():
+    print("\n"+"="*60)
+    print("  BRAINROT BATTLE ROYALE - v6 CUSTOM + MEGA AVATAR EDITION")
+    print(f"  {len(BRAINROT_NAMES)} names | {len(_AVATAR_STYLES)} avatar styles")
+    print(f"  GitHub: {GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME} (auto-detect)")
+    print("  100 balls. 10 challenges. Target: under 60s.")
+    print("="*60+"\n")
+
+    config=Config(
+        width=720, height=1280, fps=30,
+        duration=52.0,
+        bitrate="6000k",
+        num_balls=100,
+        ball_radius=13,
+        challenge_interval=4.0,
+        challenges_per_game=10,
+        audio_enabled=True,
+        output_dir="/content/generated_races",
+        image_cache_dir="/content/brainrot_img_cache",
+        seed=None,
+        background_image_path=None,
+    )
+
+    game=BallBattleRoyale(config)
+    video_path=game.run()
+    display_video(video_path)
+
+    print("\n"+"="*60)
+    print(f"  DONE! File: {video_path}")
+    print("="*60)
+    print("\nTIPS:")
+    print("  Run again for a different outcome!")
+    print("  Set config.seed = 12345 for reproducible results")
+    print("  Set config.background_image_path = '/path/to/img.jpg'")
+    print(f"\n  TO ADD MORE CUSTOM AVATARS:")
+    print(f"  1. Go to https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}")
+    print(f"  2. Upload 005.png, 006.png, 007.png, etc.")
+    print(f"  3. Run the code again — they'll auto-load! No code changes needed!")
+    return video_path
+
+
+if __name__=="__main__": video_result=main()
+else: video_result=main()
