@@ -49,7 +49,7 @@ def discover_github_images(cache_dir="/content/github_avatars"):
     Auto-discovers ALL .png images in the GitHub repo.
     Works with 001.png, 002.png, ... NNN.png
     No code changes needed when you add more images!
-    Returns a list of PIL Images (RGBA, 96x96).
+    Returns a list of PIL Images (RGBA, 160x160).
     """
     os.makedirs(cache_dir, exist_ok=True)
     images = []
@@ -81,7 +81,7 @@ def discover_github_images(cache_dir="/content/github_avatars"):
         if os.path.exists(cache_path):
             try:
                 img = Image.open(cache_path).convert("RGBA")
-                img = img.resize((96, 96), Image.LANCZOS)
+                img = img.resize((160, 160), Image.LANCZOS)
                 images.append(img)
                 print(f"  [CACHE] {fname}")
                 continue
@@ -96,7 +96,7 @@ def discover_github_images(cache_dir="/content/github_avatars"):
                 with open(cache_path, "wb") as f:
                     f.write(img_data)
                 img = Image.open(io.BytesIO(img_data)).convert("RGBA")
-                img = img.resize((96, 96), Image.LANCZOS)
+                img = img.resize((160, 160), Image.LANCZOS)
                 images.append(img)
                 print(f"  [OK] {fname} ({len(img_data)//1024}KB)")
             else:
@@ -201,6 +201,20 @@ BRAINROT_NAMES: List[str] = [
     "Pixelated NPC", "Render Distance", "Chunk Error",
     "Lag Spike", "Ping 999", "Rubber Band",
     "Desync Lord", "Packet Loss", "Server Crash",
+    # 2024-2025 trending brainrot additions
+    "Demure King", "Very Mindful", "Brat Summer", "Charli XCX",
+    "Apple Bottom", "Hawk Tuah Girl", "Gyat Nation", "Rizz God 2",
+    "Demure Lord", "Mindful Master", "Subtlety Slayer", "Quiet Luxury",
+    "Looksmaxxer", "Mog Central", "Aura Farmer", "W Rizz",
+    "NPC Detected", "Slay Era", "It's Giving", "Understood Assignment",
+    "Roman Empire Guy", "Tomato Town", "No Printer Bro", "Caught In 8K",
+    "Riz Resonance", "Sigma Protocol", "Ohio Incident", "Skibidi God",
+    "Gyatt Discovered", "Fanum Taxation", "Duke Sigmaness", "Chill Guy",
+    "Minecraft Sigma", "Grimace Shake 2", "Goofy Ahh 2", "Lil Bro",
+    "BIG BRO", "Ratio'd Again", "Instant Ratio", "Erm Actually",
+    "Unalived Bro", "Delulu Moment", "Sliving Hard", "Ate Lunch",
+    "Slay Bestie", "Periodt Queen", "Main Villain", "Side Character",
+    "Plot Twist Guy", "Final Boss",
 ]
 
 BRAINROT_CHARACTERS: List[Dict[str, Any]] = [{"name": n} for n in BRAINROT_NAMES]
@@ -249,6 +263,10 @@ _BRAINROT_WORDS = [
     "FLEX","GRIND","ALPHA","BETA","OMEGA","PRIME","SUPREME","ULTRA",
     "FADED","GLAZE","MANGO","YAPPING","TWEAKING","ICK","BFFR","NAUR",
     "PRESSED","SALTY","RENT","OOMF","IYKYK","HITS DIFFERENT","ATE LEFT",
+    "DEMURE","MINDFUL","BRAT","LOOKSMAX","MOG","CHILL GUY","UNDERSTOOD",
+    "SLAY ERA","ITS GIVING","ROMAN EMPIRE","DELULU IS SOLULU","RIZZ ERA",
+    "ACTUAL NPC","BACKGROUND CHARACTER","PLOT ARMOR GONE","COOKED FR",
+    "ABSOLUTELY COOKED","BEYOND COOKED","TERMINAL SIGMA","FINAL BOSS",
 ]
 
 _BRAINROT_EMOJIS = [
@@ -258,6 +276,9 @@ _BRAINROT_EMOJIS = [
     "🏆","🥇","👑","⭐","🌟","🌈","🎯","🎵","🎶","🍕","🌶️","🧃",
     "🍦","🎂","🍿","🌽","🥜","🐸","🐱","🐶","🦊","🐻","🐼","🦁",
     "🦈","🐧","🦆","🐔","🦅","🦇","🐙","🦑","🐌","🦋","🐝","🐞",
+    "🫶","🙏","👊","✊","🤜","🫵","👈","👉","👆","🖕","🤙","🫳",
+    "📉","📊","🔴","🔵","🟢","🟡","⬛","🔶","💢","❗","‼️","⁉️",
+    "🎃","👾","🃏","🎴","🀄","🎱","🎳","🎯","🎲","🎰","🏴‍☠️","🚩",
 ]
 
 _SYMBOL_CHARS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#@$%!?*&+=~<>{}[]")
@@ -275,6 +296,25 @@ _BRAINROT_PHRASES = [
     "ABSOLUTELY NOT","DOWN BAD","TOUCH GRASS","SKILL ISSUE","GG",
     "FADED","TWEAKING","YAPPING","ICK","NAUR","SALTY","PRESSED",
     "RENT FREE","HITS DIFF","ATE THAT","ITS GIVING","PERIODT",
+    "COOKED FR FR","ABSOLUTELY COOKED","TERMINAL BRAINROT","SIGMA GRINDSET",
+    "OHIO IS REAL","SKIBIDI MOMENT","RIZZ UNLOCKED","NPC BEHAVIOR",
+    "AURA DEPLETED","MOGGING EVERYONE","DELULU FR","LOOKSMAXXING",
+    "CAUGHT IN 8K","RATIO + L + COPE","THIS IS NOT REAL","BFFR BRO",
+    "UNDERSTOOD THE ASSIGNMENT","SLAY ERA ACTIVATED","ROMAN EMPIRE MOMENT",
+    "MAIN CHARACTER ENERGY","PLOT ARMOR DETECTED","FINAL BOSS INCOMING",
+]
+
+_EVENT_BRAINROT_SUFFIXES = [
+    "💀💀💀 EVERYONE IS COOKED FR FR",
+    "🔥 NO CAP THIS IS REAL",
+    "💯 GG COOKED",
+    "😭 HELP THEM",
+    "🗿 SIGMA EVENT",
+    "⚡ COOKED NO PRINTER",
+    "📉 L + RATIO",
+    "🤡 ITS OVER",
+    "💀 ABSOLUTELY COOKED",
+    "🔥 FR FR ON GOD",
 ]
 
 print("OK: Brainrot data pools loaded.")
@@ -2077,6 +2117,30 @@ class Vortex:
     x: float; y: float; radius: float = 80.0; strength: float = 2.5
     rotation: float = 0.0; kill_radius: float = 14.0; lifetime_frames: int = 900
 
+@dataclass
+class SigmaStare:
+    x: float; y: float; angle: float = 0.0
+    cone_half: float = 0.45; cone_range: float = 280.0
+    warmup_frames: int = 40; active_frames: int = 90; done: bool = False
+    pulse: float = 0.0
+
+@dataclass
+class RatioBeam:
+    axis: str; position: float; speed: float = 3.0
+    end_position: float = 0.0; width: int = 16; done: bool = False
+    color: Tuple[int, int, int] = (255, 80, 0)
+
+@dataclass
+class NpcFreeze:
+    frozen_ids: Set[int] = field(default_factory=set)
+    warmup_frames: int = 30; freeze_frames: int = 90; done: bool = False
+    phase: str = "warmup"  # "warmup", "frozen", "shatter"
+
+@dataclass
+class BackroomsHole:
+    x: float; y: float; w: float; h: float
+    warmup_frames: int = 20; lifetime_frames: int = 120; done: bool = False
+
 print("OK: Hazard data classes ready.")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2131,6 +2195,11 @@ class HazardManager:
         self.spikes: List[Spike]=[]
         self.lava_zones: List[LavaZone]=[]
         self.vortices: List[Vortex]=[]
+        self.sigma_stares: List[SigmaStare]=[]
+        self.ratio_beams: List[RatioBeam]=[]
+        self.npc_freezes: List[NpcFreeze]=[]
+        self.backrooms_holes: List[BackroomsHole]=[]
+        self.frozen_ball_ids: Set[int]=set()
 
     def update(self, t, frame, arena):
         ax1,ay1,ax2,ay2=arena
@@ -2187,6 +2256,37 @@ class HazardManager:
         for v in self.vortices:
             v.rotation+=0.08; v.lifetime_frames-=1
         self.vortices=[v for v in self.vortices if v.lifetime_frames>0]
+
+        for ss in self.sigma_stares:
+            ss.pulse+=0.15
+            if ss.warmup_frames>0: ss.warmup_frames-=1
+            else:
+                ss.active_frames-=1
+                if ss.active_frames<=0: ss.done=True
+        self.sigma_stares=[s for s in self.sigma_stares if not s.done]
+
+        for rb in self.ratio_beams:
+            if not rb.done:
+                rb.position+=rb.speed
+                if rb.position>=rb.end_position: rb.done=True
+        self.ratio_beams=[r for r in self.ratio_beams if not r.done]
+
+        for nf in self.npc_freezes:
+            if nf.phase=="warmup":
+                if nf.warmup_frames>0: nf.warmup_frames-=1
+                else: nf.phase="frozen"
+            elif nf.phase=="frozen":
+                if nf.freeze_frames>0: nf.freeze_frames-=1
+                else: nf.phase="shatter"
+            elif nf.phase=="shatter": nf.done=True
+        self.npc_freezes=[n for n in self.npc_freezes if not n.done]
+        self.frozen_ball_ids={bid for nf in self.npc_freezes if nf.phase in ("warmup","frozen") for bid in nf.frozen_ids}
+
+        for bh in self.backrooms_holes:
+            if bh.warmup_frames>0: bh.warmup_frames-=1
+            else: bh.lifetime_frames-=1
+            if bh.lifetime_frames<=0: bh.done=True
+        self.backrooms_holes=[b for b in self.backrooms_holes if not b.done]
 
         if len(self.spikes)>35: self.spikes=self.spikes[-30:]
         if len(self.fireballs)>10: self.fireballs=self.fireballs[-8:]
@@ -2254,6 +2354,28 @@ class HazardManager:
         for v in self.vortices:
             if math.hypot(bx-v.x,by-v.y)<v.kill_radius+br: return True
 
+        for ss in self.sigma_stares:
+            if ss.warmup_frames>0: continue
+            dx=bx-ss.x; dy=by-ss.y; dist=math.hypot(dx,dy)
+            if dist<ss.cone_range:
+                ball_angle=math.atan2(dy,dx)
+                diff=abs((ball_angle-ss.angle+math.pi)%(2*math.pi)-math.pi)
+                if diff<ss.cone_half: return True
+
+        for rb in self.ratio_beams:
+            if rb.done: continue
+            if rb.axis=="h":
+                if abs(by-rb.position)<rb.width//2+br: return True
+            else:
+                if abs(bx-rb.position)<rb.width//2+br: return True
+
+        for nf in self.npc_freezes:
+            if nf.phase=="shatter" and ball.id in nf.frozen_ids: return True
+
+        for bh in self.backrooms_holes:
+            if bh.warmup_frames>0: continue
+            if (bx-br<bh.x+bh.w and bx+br>bh.x and by-br<bh.y+bh.h and by+br>bh.y): return True
+
         return False
 
     def apply_vortex_force(self, ball):
@@ -2286,6 +2408,10 @@ def _snapshot_hazards(hazards):
         "spikes":[(sp.x,sp.y,sp.radius,sp.pulse_phase,sp.warmup_frames) for sp in hazards.spikes],
         "lava_zones":[(lz.side,lz.thickness,lz.warmup_frames) for lz in hazards.lava_zones],
         "vortices":[(v.x,v.y,v.radius,v.rotation,v.kill_radius) for v in hazards.vortices],
+        "sigma_stares":[(ss.x,ss.y,ss.angle,ss.warmup_frames,ss.active_frames,ss.pulse) for ss in hazards.sigma_stares],
+        "ratio_beams":[(rb.axis,rb.position,rb.speed,rb.end_position,rb.width,rb.color) for rb in hazards.ratio_beams],
+        "npc_freezes":[(list(nf.frozen_ids),nf.warmup_frames,nf.freeze_frames,nf.phase) for nf in hazards.npc_freezes],
+        "backrooms_holes":[(bh.x,bh.y,bh.w,bh.h,bh.warmup_frames,bh.lifetime_frames) for bh in hazards.backrooms_holes],
     }
 
 def _restore_hazards(hazards, snap):
@@ -2298,6 +2424,11 @@ def _restore_hazards(hazards, snap):
     hazards.spikes=[Spike(x=x,y=y,radius=r,pulse_phase=pp,warmup_frames=wf) for x,y,r,pp,wf in snap["spikes"]]
     hazards.lava_zones=[LavaZone(side=s,thickness=th,warmup_frames=wf) for s,th,wf in snap["lava_zones"]]
     hazards.vortices=[Vortex(x=x,y=y,radius=r,rotation=rot,kill_radius=kr) for x,y,r,rot,kr in snap["vortices"]]
+    hazards.sigma_stares=[SigmaStare(x=x,y=y,angle=a,warmup_frames=wf,active_frames=af,pulse=p) for x,y,a,wf,af,p in snap.get("sigma_stares",[])]
+    hazards.ratio_beams=[RatioBeam(axis=ax,position=pos,speed=sp,end_position=ep,width=w,color=c) for ax,pos,sp,ep,w,c in snap.get("ratio_beams",[])]
+    hazards.npc_freezes=[NpcFreeze(frozen_ids=set(fids),warmup_frames=wf,freeze_frames=ff,phase=ph) for fids,wf,ff,ph in snap.get("npc_freezes",[])]
+    hazards.backrooms_holes=[BackroomsHole(x=x,y=y,w=w,h=h,warmup_frames=wf,lifetime_frames=lf) for x,y,w,h,wf,lf in snap.get("backrooms_holes",[])]
+    hazards.frozen_ball_ids={bid for nf in hazards.npc_freezes if nf.phase in ("warmup","frozen") for bid in nf.frozen_ids}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CHALLENGE POOL
@@ -2523,6 +2654,63 @@ def _ch_thanos(balls,arena,hazards,rng,config,**kw):
         cx=cx,cy=cy,speed=8.0,max_radius=arena_min*0.48,
         thickness=22,kill_thickness=22,color=(200,100,255)))
 
+@_register("SIGMA STARE 🗿","[STARE]","sigma_stare")
+def _ch_sigma_stare(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    ex=rng.uniform(ax1+60,ax2-60); ey=rng.uniform(ay1+40,ay2-40)
+    alive=[b for b in balls if b.alive]
+    if alive:
+        target=rng.choice(alive)
+        angle=math.atan2(target.y-ey,target.x-ex)
+    else: angle=rng.uniform(0,2*math.pi)
+    hazards.sigma_stares.append(SigmaStare(
+        x=ex,y=ey,angle=angle,cone_half=0.50,cone_range=300,
+        warmup_frames=35,active_frames=80))
+
+@_register("TOILET FLUSH 🚽","[FLUSH]","toilet_flush")
+def _ch_toilet_flush(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
+    hazards.vortices.append(Vortex(
+        x=cx+rng.uniform(-30,30),y=cy+rng.uniform(-30,30),
+        radius=rng.uniform(130,180),strength=rng.uniform(5.0,8.0),
+        kill_radius=rng.uniform(14,22),lifetime_frames=180,
+        rotation=0.0))
+    for b in balls:
+        if b.alive:
+            dx,dy=cx-b.x,cy-b.y; dist=math.hypot(dx,dy)+0.01
+            b.vx+=(dx/dist)*rng.uniform(3,6); b.vy+=(dy/dist)*rng.uniform(3,6)
+
+@_register("RATIO BEAM 📉","[RATIO]","ratio_beam")
+def _ch_ratio_beam(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    if rng.random()<0.5:
+        axis="h"; start=float(ay1); end=float(ay2)
+    else:
+        axis="v"; start=float(ax1); end=float(ax2)
+    hazards.ratio_beams.append(RatioBeam(
+        axis=axis,position=start,speed=rng.uniform(4.0,7.0),
+        end_position=end,width=rng.randint(18,28),
+        color=(255,rng.randint(40,100),0)))
+
+@_register("NPC FREEZE 🤖","[NPC]","npc_freeze")
+def _ch_npc_freeze(balls,arena,hazards,rng,config,**kw):
+    alive=[b for b in balls if b.alive]
+    num_frozen=max(1,int(len(alive)*rng.uniform(0.30,0.50)))
+    frozen=rng.sample(alive,min(num_frozen,len(alive)))
+    frozen_ids={b.id for b in frozen}
+    for b in frozen: b.vx=0; b.vy=0
+    hazards.npc_freezes.append(NpcFreeze(
+        frozen_ids=frozen_ids,warmup_frames=25,freeze_frames=75))
+
+@_register("BACKROOMS CLIP 🟨","[VOID]","backrooms_clip")
+def _ch_backrooms_clip(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    for _ in range(rng.randint(4,8)):
+        hw=rng.uniform(35,80); hh=rng.uniform(35,80)
+        hx=rng.uniform(ax1+20,ax2-hw-20); hy=rng.uniform(ay1+20,ay2-hh-20)
+        hazards.backrooms_holes.append(BackroomsHole(
+            x=hx,y=hy,w=hw,h=hh,warmup_frames=15,lifetime_frames=90))
+
 print(f"OK: {len(ALL_CHALLENGES)} challenges registered.")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2535,6 +2723,8 @@ CHALLENGE_ACTIVE_DURATIONS: Dict[str, int] = {
     "scatter":60,"implode":60,"earthquake":60,"freeze":90,"reverse":60,
     "bumper":90,"tornado":500,"thanos":90,"invincible":180,"shrink":120,
     "combo1":700,"combo2":150,"combo3":500,
+    "sigma_stare":140,"toilet_flush":200,"ratio_beam":150,
+    "npc_freeze":140,"backrooms_clip":130,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2561,8 +2751,13 @@ class PhysicsEngine:
     def update_balls(self, balls, arena, hazards, frame):
         ax1,ay1,ax2,ay2=arena; dt=1.0/self.config.fps
         alive_balls=[b for b in balls if b.alive]
+        frozen_ids=hazards.frozen_ball_ids if hasattr(hazards,'frozen_ball_ids') else set()
         for ball in alive_balls:
             if ball.invincible_timer>0: ball.invincible_timer-=dt
+            if ball.id in frozen_ids:
+                ball.vx=0; ball.vy=0
+                ball.trail.clear()
+                continue
             hazards.apply_vortex_force(ball)
             ball.trail.append((ball.x,ball.y))
             if len(ball.trail)>8: ball.trail.pop(0)
@@ -2605,6 +2800,183 @@ class AudioGenerator:
         self.config=config; self.temp_dir=os.path.join(config.output_dir,"temp_audio")
         os.makedirs(self.temp_dir,exist_ok=True)
 
+    # ── 5 RANDOM BGM SONGS ───────────────────────────────────────────────────
+
+    def _bgm_sigma_phonk(self, audio, sr, race_start, race_end, rng_audio):
+        """Song 1: Sigma Phonk — heavy bass, phonk cowbell, dark 808 slides, BPM=140"""
+        bpm=140; bs=int(60.0/bpm*sr); hb=bs//2; qb=bs//4
+        # Cowbell hit
+        cb_len=int(0.06*sr); cb_t=np.arange(cb_len,dtype=np.float64)/sr
+        cowbell=(np.sin(2*np.pi*562*cb_t)+np.sin(2*np.pi*845*cb_t))*np.exp(-cb_t*60)*0.18
+        # Heavy kick
+        k_len=int(0.12*sr); k_t=np.arange(k_len,dtype=np.float64)/sr
+        kick=np.sin(2*np.pi*55*k_t)*np.exp(-k_t*20)*0.55+rng_audio.standard_normal(k_len)*np.exp(-k_t*80)*0.04
+        # Snare
+        sn_len=int(0.07*sr); sn_t=np.arange(sn_len,dtype=np.float64)/sr
+        snare=rng_audio.standard_normal(sn_len)*np.exp(-sn_t*40)*0.22
+        # 808 bass slide
+        bass_notes=[65.0,58.0,73.0,65.0]; b_dur=int(bs*0.90); b_t=np.arange(b_dur,dtype=np.float64)/sr
+        # Dark synth melody
+        mel_notes=[185,207,174,196,185,165,174,185]; m_dur=hb; m_t=np.arange(m_dur,dtype=np.float64)/sr
+        m_fade=max(1,m_dur//6); m_env=np.ones(m_dur,dtype=np.float64)
+        m_env[:m_fade]=np.linspace(0,1,m_fade); m_env[-m_fade:]=np.linspace(1,0,m_fade)
+        num_beats=(race_end-race_start)//bs+1; mel_i=0
+        for i in range(num_beats):
+            pos=race_start+i*bs
+            self._safe_add(audio,pos,kick,len(audio))
+            if i%4 in (1,3): self._safe_add(audio,pos,snare,len(audio))
+            if i%2==0: self._safe_add(audio,pos,cowbell,len(audio))
+            if i%2==1: self._safe_add(audio,pos+qb,cowbell,len(audio))
+            fn=bass_notes[i%len(bass_notes)]
+            slide_end=fn*0.85; freq_slide=np.linspace(fn,slide_end,b_dur)
+            phase=np.cumsum(freq_slide/sr)*2*np.pi
+            bass_env=np.exp(-b_t*4)
+            bass_wave=(np.sin(phase)+np.sin(phase*2)*0.5)*bass_env*0.18
+            self._safe_add(audio,pos,bass_wave,len(audio))
+            for off in (0,hb):
+                mf=mel_notes[mel_i%len(mel_notes)]
+                mw=(np.sin(2*np.pi*mf*m_t)+np.sin(2*np.pi*mf*2*m_t)*0.3)*m_env*0.055
+                self._safe_add(audio,pos+off,mw,len(audio)); mel_i+=1
+        print("[SONG] Sigma Phonk 🔥 — heavy bass phonk vibes")
+
+    def _bgm_skibidi_bounce(self, audio, sr, race_start, race_end, rng_audio):
+        """Song 2: Skibidi Bounce — bouncy upbeat, toilet-flush sweep, playful, BPM=180"""
+        bpm=180; bs=int(60.0/bpm*sr); hb=bs//2
+        k_len=int(0.08*sr); k_t=np.arange(k_len,dtype=np.float64)/sr
+        kick=np.sin(2*np.pi*80*k_t)*np.exp(-k_t*50)*0.38
+        sn_len=int(0.045*sr); sn_t=np.arange(sn_len,dtype=np.float64)/sr
+        snare=rng_audio.standard_normal(sn_len)*np.exp(-sn_t*60)*0.14
+        hh_len=int(0.015*sr)
+        hh=rng_audio.standard_normal(hh_len)*np.exp(-np.arange(hh_len,dtype=np.float64)/sr*120)*0.03
+        # Toilet flush sweep (rising freq noise burst)
+        flush_len=int(0.15*sr); flush_t=np.arange(flush_len,dtype=np.float64)/sr
+        flush_freq=np.linspace(200,2000,flush_len); flush_phase=np.cumsum(flush_freq/sr)*2*np.pi
+        toilet_flush=np.sin(flush_phase)*np.exp(-flush_t*8)*0.12
+        # Playful melody in major key (C major)
+        mel_notes=[523,659,784,880,784,659,523,587,659,523,587,659,784,659,587,523]
+        b_freqs=[130.8,130.8,164.8,130.8]; b_dur=int(bs*0.65); b_t=np.arange(b_dur,dtype=np.float64)/sr
+        b_env=np.exp(-b_t*9)
+        m_dur=hb; m_t=np.arange(m_dur,dtype=np.float64)/sr
+        m_fade=max(1,m_dur//6); m_env=np.ones(m_dur); m_env[:m_fade]=np.linspace(0,1,m_fade); m_env[-m_fade:]=np.linspace(1,0,m_fade)
+        num_beats=(race_end-race_start)//bs+1; mel_i=0
+        for i in range(num_beats):
+            pos=race_start+i*bs
+            self._safe_add(audio,pos,kick,len(audio))
+            if i%4 in (1,3): self._safe_add(audio,pos,snare,len(audio))
+            for off in (0,hb): self._safe_add(audio,pos+off,hh,len(audio))
+            if i%8==0: self._safe_add(audio,pos,toilet_flush,len(audio))
+            bf=b_freqs[i%len(b_freqs)]
+            bw=(np.sin(2*np.pi*bf*b_t)+np.sin(2*np.pi*bf*2*b_t)*0.4)*b_env*0.13
+            self._safe_add(audio,pos,bw,len(audio))
+            for off in (0,hb):
+                mf=mel_notes[mel_i%len(mel_notes)]
+                mw=(np.sin(2*np.pi*mf*m_t)+np.sin(2*np.pi*mf*1.5*m_t)*0.2)*m_env*0.060
+                self._safe_add(audio,pos+off,mw,len(audio)); mel_i+=1
+        print("[SONG] Skibidi Bounce 🚽 — bouncy toilet phonk vibes")
+
+    def _bgm_ohio_trap(self, audio, sr, race_start, race_end, rng_audio):
+        """Song 3: Ohio Trap — trap hi-hats, deep 808s, eerie synth pads, BPM=150"""
+        bpm=150; bs=int(60.0/bpm*sr); hb=bs//2; qb=bs//4
+        k_len=int(0.14*sr); k_t=np.arange(k_len,dtype=np.float64)/sr
+        kick=np.sin(2*np.pi*50*k_t)*np.exp(-k_t*22)*0.60
+        sn_len=int(0.06*sr); sn_t=np.arange(sn_len,dtype=np.float64)/sr
+        snare=rng_audio.standard_normal(sn_len)*np.exp(-sn_t*35)*0.20
+        # Trap hi-hats (16th notes)
+        hh_len=int(0.012*sr)
+        hh=rng_audio.standard_normal(hh_len)*np.exp(-np.arange(hh_len,dtype=np.float64)/sr*200)*0.025
+        open_hh_len=int(0.06*sr)
+        open_hh=rng_audio.standard_normal(open_hh_len)*np.exp(-np.arange(open_hh_len,dtype=np.float64)/sr*25)*0.04
+        # Eerie Ohio pad (minor chords)
+        pad_freqs=[146.8,174.6,220.0]; pad_len=bs*2; pad_t=np.arange(pad_len,dtype=np.float64)/sr
+        pad_env=np.ones(pad_len); fade=pad_len//8; pad_env[:fade]=np.linspace(0,1,fade); pad_env[-fade:]=np.linspace(1,0,fade)
+        pad=(sum(np.sin(2*np.pi*f*pad_t) for f in pad_freqs)/(len(pad_freqs)))*pad_env*0.06
+        # Deep 808 bass
+        bass_notes=[73.4,65.4,87.3,73.4]; b_dur=int(bs*0.85); b_t=np.arange(b_dur,dtype=np.float64)/sr
+        b_env=np.exp(-b_t*5)
+        num_beats=(race_end-race_start)//bs+1
+        for i in range(num_beats):
+            pos=race_start+i*bs
+            self._safe_add(audio,pos,kick,len(audio))
+            if i%4 in (2,): self._safe_add(audio,pos,snare,len(audio))
+            if i%4==3: self._safe_add(audio,pos+hb,snare,len(audio))
+            for off in range(0,bs,qb): self._safe_add(audio,pos+off,hh,len(audio))
+            if i%4==3: self._safe_add(audio,pos+hb+qb,open_hh,len(audio))
+            if i%2==0: self._safe_add(audio,pos,pad,len(audio))
+            fn=bass_notes[i%len(bass_notes)]
+            bw=(np.sin(2*np.pi*fn*b_t)+np.sin(2*np.pi*fn*2*b_t)*0.6)*b_env*0.20
+            self._safe_add(audio,pos,bw,len(audio))
+        print("[SONG] Ohio Trap 😐 — eerie trap menace from Ohio")
+
+    def _bgm_rizz_wave(self, audio, sr, race_start, race_end, rng_audio):
+        """Song 4: Rizz Wave — smooth vaporwave/lo-fi, dreamy pads, gentle beats, BPM=90"""
+        bpm=90; bs=int(60.0/bpm*sr); hb=bs//2
+        k_len=int(0.10*sr); k_t=np.arange(k_len,dtype=np.float64)/sr
+        kick=np.sin(2*np.pi*70*k_t)*np.exp(-k_t*30)*0.30
+        sn_len=int(0.10*sr); sn_t=np.arange(sn_len,dtype=np.float64)/sr
+        snare=(rng_audio.standard_normal(sn_len)*np.exp(-sn_t*20)*0.10+
+               np.sin(2*np.pi*250*sn_t)*np.exp(-sn_t*30)*0.06)
+        hh_len=int(0.03*sr)
+        hh=rng_audio.standard_normal(hh_len)*np.exp(-np.arange(hh_len,dtype=np.float64)/sr*50)*0.03
+        # Dreamy pad (major 7th chord)
+        pad_notes=[261.6,329.6,392.0,493.9,523.3]; pad_len=bs*4; pad_t=np.arange(pad_len,dtype=np.float64)/sr
+        pad_env=np.ones(pad_len); fade=pad_len//6; pad_env[:fade]=np.linspace(0,1,fade); pad_env[-fade:]=np.linspace(1,0,fade)
+        vibrato=np.sin(2*np.pi*4.5*pad_t)*0.003
+        pad=sum(np.sin(2*np.pi*(f+vibrato)*pad_t) for f in pad_notes)/len(pad_notes)*pad_env*0.08
+        # Lo-fi melody
+        mel_notes=[392,440,523,587,523,440,392,349,392,440,493,523]; m_dur=hb; m_t=np.arange(m_dur,dtype=np.float64)/sr
+        m_fade=max(1,m_dur//5); m_env=np.ones(m_dur); m_env[:m_fade]=np.linspace(0,1,m_fade); m_env[-m_fade:]=np.linspace(1,0,m_fade)
+        m_env*=np.exp(-m_t*2)
+        # Bass
+        b_notes=[130.8,110.0,146.8,130.8]; b_dur=int(bs*0.80); b_t=np.arange(b_dur,dtype=np.float64)/sr; b_env=np.exp(-b_t*5)
+        num_beats=(race_end-race_start)//bs+1; mel_i=0
+        for i in range(num_beats):
+            pos=race_start+i*bs
+            self._safe_add(audio,pos,kick,len(audio))
+            if i%4 in (1,3): self._safe_add(audio,pos,snare,len(audio))
+            for off in (0,hb): self._safe_add(audio,pos+off,hh,len(audio))
+            if i%4==0: self._safe_add(audio,pos,pad,len(audio))
+            fn=b_notes[i%len(b_notes)]
+            bw=np.sin(2*np.pi*fn*b_t)*b_env*0.10
+            self._safe_add(audio,pos,bw,len(audio))
+            for off in (0,hb):
+                mf=mel_notes[mel_i%len(mel_notes)]
+                mw=(np.sin(2*np.pi*mf*m_t)*0.7+np.sin(2*np.pi*mf*2*m_t)*0.2)*m_env*0.050
+                self._safe_add(audio,pos+off,mw,len(audio)); mel_i+=1
+        print("[SONG] Rizz Wave 😎 — smooth vaporwave lo-fi rizz energy")
+
+    def _bgm_brainrot_bass(self, audio, sr, race_start, race_end, rng_audio):
+        """Song 5: Brainrot Bass — extreme bass boost, distorted, chaotic, fast, BPM=200"""
+        bpm=200; bs=int(60.0/bpm*sr); hb=bs//2; qb=bs//4
+        k_len=int(0.09*sr); k_t=np.arange(k_len,dtype=np.float64)/sr
+        kick=np.sin(2*np.pi*60*k_t)*np.exp(-k_t*45)*0.65
+        # Distorted kick
+        kick_d=np.tanh(kick*4.0)*0.45
+        sn_len=int(0.04*sr); sn_t=np.arange(sn_len,dtype=np.float64)/sr
+        snare=rng_audio.standard_normal(sn_len)*np.exp(-sn_t*70)*0.28
+        hh_len=int(0.010*sr)
+        hh=rng_audio.standard_normal(hh_len)*np.exp(-np.arange(hh_len,dtype=np.float64)/sr*300)*0.025
+        # Extreme bass (sub + distortion)
+        bass_notes=[87.3,73.4,97.9,87.3,65.4,87.3,73.4,110.0]; b_dur=int(bs*0.80); b_t=np.arange(b_dur,dtype=np.float64)/sr
+        b_env=np.exp(-b_t*6)
+        # Chaotic arpeggio
+        arp_notes=[523,622,740,880,1047,880,740,622,523,440,523,622]; m_dur=qb; m_t=np.arange(m_dur,dtype=np.float64)/sr
+        m_env=np.exp(-m_t*20); m_env[:max(1,m_dur//10)]=np.linspace(0,1,max(1,m_dur//10))
+        num_beats=(race_end-race_start)//bs+1; mel_i=0
+        for i in range(num_beats):
+            pos=race_start+i*bs
+            self._safe_add(audio,pos,kick_d,len(audio))
+            if i%2 in (1,): self._safe_add(audio,pos,snare,len(audio))
+            for off in range(0,bs,qb): self._safe_add(audio,pos+off,hh,len(audio))
+            fn=bass_notes[i%len(bass_notes)]
+            raw_bass=(np.sin(2*np.pi*fn*b_t)+np.sin(2*np.pi*fn*2*b_t)*0.7)*b_env
+            dist_bass=np.tanh(raw_bass*3.0)*0.22
+            self._safe_add(audio,pos,dist_bass,len(audio))
+            for off in range(0,bs,qb):
+                mf=arp_notes[mel_i%len(arp_notes)]
+                mw=np.sin(2*np.pi*mf*m_t)*m_env*0.07
+                self._safe_add(audio,pos+off,mw,len(audio)); mel_i+=1
+        print("[SONG] Brainrot Bass 💀 — extreme bass distortion chaos overload")
+
     def generate(self, total_duration, winner_name, countdown_dur,
                  death_times, challenge_times, winner_time=None):
         sr=44100; total_samples=int(total_duration*sr)
@@ -2621,36 +2993,20 @@ class AudioGenerator:
         else: race_end=int((total_duration-5.0)*sr)
         race_end=min(race_end,total_samples)
 
-        bpm=165
-        beat_samples=int(60.0/bpm*sr); half_beat=beat_samples//2
-
-        kick_len=int(0.10*sr); kick_t=np.arange(kick_len,dtype=np.float64)/sr
-        kick=np.sin(2*np.pi*65*kick_t)*np.exp(-kick_t*35)*0.4
-        snare_len=int(0.05*sr); snare_t=np.arange(snare_len,dtype=np.float64)/sr
-        snare=rng_audio.standard_normal(snare_len)*np.exp(-snare_t*45)*0.15
-        hh_len=int(0.02*sr)
-        hh=rng_audio.standard_normal(hh_len)*np.exp(-np.arange(hh_len,dtype=np.float64)/sr*90)*0.04
-
-        bass_freqs=[131.0,165.0,196.0,131.0]; bass_dur=int(beat_samples*0.75)
-        bass_t_arr=np.arange(bass_dur,dtype=np.float64)/sr; bass_env=np.exp(-bass_t_arr*7)
-        mel_notes=[523,659,784,659,523,587,659,523]; mel_dur=half_beat
-        mel_t_arr=np.arange(mel_dur,dtype=np.float64)/sr; mel_fade=max(1,mel_dur//8)
-        mel_env=np.ones(mel_dur,dtype=np.float64)
-        mel_env[:mel_fade]=np.linspace(0,1,mel_fade); mel_env[-mel_fade:]=np.linspace(1,0,mel_fade)
-        mel_env*=np.exp(-mel_t_arr*5)
-        num_beats=(race_end-race_start)//beat_samples+1; mel_idx=0
-        for i_beat in range(num_beats):
-            pos=race_start+i_beat*beat_samples
-            self._safe_add(audio,pos,kick,total_samples)
-            if i_beat%4 in (1,3): self._safe_add(audio,pos,snare,total_samples)
-            for off in (0,half_beat): self._safe_add(audio,pos+off,hh,total_samples)
-            note_freq=bass_freqs[i_beat%len(bass_freqs)]
-            bass_wave=np.sin(2*np.pi*note_freq*bass_t_arr)*bass_env*0.12
-            self._safe_add(audio,pos,bass_wave,total_samples)
-            for m_off in (0,half_beat):
-                mel_freq=mel_notes[mel_idx%len(mel_notes)]
-                mel_wave=(np.sin(2*np.pi*mel_freq*mel_t_arr)+np.sin(2*np.pi*mel_freq*3*mel_t_arr)*0.25)*mel_env*0.055
-                self._safe_add(audio,pos+m_off,mel_wave,total_samples); mel_idx+=1
+        # ── RANDOM SONG SELECTION (20% each) ──────────────────────────────────
+        song_fns=[
+            self._bgm_sigma_phonk,
+            self._bgm_skibidi_bounce,
+            self._bgm_ohio_trap,
+            self._bgm_rizz_wave,
+            self._bgm_brainrot_bass,
+        ]
+        song_names=["Sigma Phonk","Skibidi Bounce","Ohio Trap","Rizz Wave","Brainrot Bass"]
+        rng_song=random.Random(self.config.seed)
+        chosen_idx=rng_song.randint(0,len(song_fns)-1)
+        print(f"\n🎵 SONG SELECTED: {song_names[chosen_idx]} (1 of 5, 20% chance each)")
+        song_fns[chosen_idx](audio,sr,race_start,race_end,rng_audio)
+        # ─────────────────────────────────────────────────────────────────────
 
         death_thud_len=int(0.08*sr); death_thud_t=np.arange(death_thud_len,dtype=np.float64)/sr
         death_thud=np.sin(2*np.pi*45*death_thud_t)*np.exp(-death_thud_t*25)*0.3
@@ -2735,7 +3091,7 @@ class AudioGenerator:
             try: os.remove(f)
             except OSError: pass
 
-print("OK: Audio generator ready.")
+print("OK: Audio generator ready (5 random songs system).")
 # ─────────────────────────────────────────────────────────────────────────────
 # RENDERER — WINNER IMAGE 15-20% BIGGER
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2828,6 +3184,18 @@ class Renderer:
             for gx in range(0,w,40): draw.line([(gx,0),(gx,h)],fill=grid_c,width=1)
             for gy in range(0,h,40): draw.line([(0,gy),(w,gy)],fill=grid_c,width=1)
 
+        # Floating background brainrot text
+        if phase=="racing":
+            bg_rng=random.Random(frame//15*7919)
+            bg_font=self._font(14)
+            all_bg_words=_BRAINROT_WORDS+_BRAINROT_EMOJIS
+            for _ in range(5):
+                bw_x=bg_rng.randint(5,w-80); bw_y=bg_rng.randint(5,h-20)
+                bw_t=bg_rng.choice(all_bg_words); alpha=bg_rng.randint(25,60)
+                hue_bg=(frame*0.007+bg_rng.random())%1.0
+                r_bg,g_bg,b_bg=[int(c*255) for c in colorsys.hsv_to_rgb(hue_bg,0.6,0.5)]
+                draw.text((bw_x,bw_y),bw_t,font=bg_font,fill=(r_bg,g_bg,b_bg))
+
         for row_i in range(max(0,ay1),min(h,ay2)):
             rp=(row_i-ay1)/max(1,ay2-ay1)
             rb=int(self.config.arena_color[0]+rp*8); gb=int(self.config.arena_color[1]+rp*5)
@@ -2848,7 +3216,8 @@ class Renderer:
         self._update_and_render_bubbles(draw,img,frame)
 
         alive_balls=sorted([b for b in balls if b.alive],key=lambda b:b.y)
-        for ball in alive_balls: self._render_ball(draw,img,ball,frame)
+        frozen_ids=hazards.frozen_ball_ids if hasattr(hazards,'frozen_ball_ids') else set()
+        for ball in alive_balls: self._render_ball(draw,img,ball,frame,frozen_ids)
 
         self._render_hud(draw,img,t,frame,alive_count,total,phase,winner,balls,
                          selected_challenges,active_challenge_indices,applied_challenge_indices)
@@ -2862,29 +3231,44 @@ class Renderer:
             shifted=Image.new("RGB",(w,h),(10,8,18)); shifted.paste(img,(shake_x,shake_y)); img=shifted
         return np.array(img,dtype=np.uint8)
 
-    def _render_ball(self, draw, img, ball, frame):
+    def _render_ball(self, draw, img, ball, frame, frozen_ids=None):
         x,y,r=int(ball.x),int(ball.y),ball.radius
+        is_frozen=(frozen_ids is not None and ball.id in frozen_ids)
         for i,(tx,ty) in enumerate(ball.trail):
             af=(i+1)/(len(ball.trail)+1); tr=max(2,int(r*af*0.5))
             c=tuple(int(v*af*0.4) for v in ball.color)
             draw.ellipse([int(tx)-tr,int(ty)-tr,int(tx)+tr,int(ty)+tr],fill=c)
+        # Glow/shadow under ball for depth
+        shadow_r=r+4
+        draw.ellipse([x-shadow_r+4,y-shadow_r+6,x+shadow_r+4,y+shadow_r+6],fill=(0,0,0))
         draw.ellipse([x-r+3,y-r+3,x+r+3,y+r+3],fill=(0,0,0))
         if ball.invincible_timer>0:
             gr=r+5+int(math.sin(frame*0.5)*3)
             draw.ellipse([x-gr,y-gr,x+gr,y+gr],outline=(255,255,100),width=3)
-        draw.ellipse([x-r,y-r,x+r,y+r],fill=ball.color)
+        if is_frozen:
+            draw.ellipse([x-r,y-r,x+r,y+r],fill=(140,160,220))
+        else:
+            draw.ellipse([x-r,y-r,x+r,y+r],fill=ball.color)
         char_img=self._character_images.get(ball.name)
         if char_img is not None:
             diam=r*2
             if diam>=6:
                 try:
                     resized=char_img.resize((diam,diam),Image.LANCZOS)
+                    if is_frozen:
+                        r_arr=np.array(resized).astype(np.float32)
+                        grey=(r_arr[...,0]*0.3+r_arr[...,1]*0.59+r_arr[...,2]*0.11)
+                        r_arr[...,0]=grey*0.6; r_arr[...,1]=grey*0.7; r_arr[...,2]=grey*1.1
+                        r_arr=np.clip(r_arr,0,255).astype(np.uint8); resized=Image.fromarray(r_arr,'RGBA')
                     mask=Image.new("L",(diam,diam),0); mask_draw=ImageDraw.Draw(mask)
                     mask_draw.ellipse([0,0,diam-1,diam-1],fill=255)
                     img.paste(resized,(x-r,y-r),mask)
                 except Exception: pass
         draw=ImageDraw.Draw(img)
         draw.ellipse([x-r,y-r,x+r,y+r],outline=ball.outline_color,width=self.config.ball_outline_width)
+        if is_frozen:
+            ice_r=r+3+int(math.sin(frame*0.4)*2)
+            draw.ellipse([x-ice_r,y-ice_r,x+ice_r,y+ice_r],outline=(180,220,255),width=2)
         if r>=8:
             nf=self._font(max(8,min(12,r-1))); short=ball.name[:8]
             bbox_n=draw.textbbox((0,0),short,font=nf); tw_n=bbox_n[2]-bbox_n[0]
@@ -3015,6 +3399,76 @@ class Renderer:
             draw.ellipse([vx-kr-4,vy-kr-4,vx+kr+4,vy+kr+4],fill=(180,0,0),outline=(255,50,50),width=3)
             draw.ellipse([vx-kr,vy-kr,vx+kr,vy+kr],fill=(255,0,0),outline=(255,180,0),width=2)
 
+        # ── SIGMA STARE ───────────────────────────────────────────────────────
+        for ss in hazards.sigma_stares:
+            sx,sy=int(ss.x),int(ss.y)
+            pulse_r=int(5+4*math.sin(ss.pulse))
+            glow=int(180+75*abs(math.sin(ss.pulse)))
+            if ss.warmup_frames>0:
+                draw.ellipse([sx-20,sy-10,sx+20,sy+10],fill=(60,0,0),outline=(glow,0,0),width=2)
+            else:
+                left_ex=sx-18; right_ex=sx+18
+                for eye_x in (left_ex,right_ex):
+                    draw.ellipse([eye_x-12,sy-8,eye_x+12,sy+8],fill=(glow,0,0))
+                    draw.ellipse([eye_x-5,sy-3,eye_x+5,sy+3],fill=(255,255,255))
+                    draw.ellipse([eye_x-2,sy-2,eye_x+2,sy+2],fill=(0,0,0))
+                ang=ss.angle; cone=ss.cone_half; rng_v=int(ss.cone_range)
+                p1=(sx+int(math.cos(ang-cone)*rng_v),sy+int(math.sin(ang-cone)*rng_v))
+                p2=(sx+int(math.cos(ang+cone)*rng_v),sy+int(math.sin(ang+cone)*rng_v))
+                cone_img=Image.new("RGBA",(self.w,self.h),(0,0,0,0))
+                cd=ImageDraw.Draw(cone_img)
+                cd.polygon([(sx,sy),p1,p2],fill=(glow,0,0,55))
+                img.paste(cone_img,(0,0),cone_img); draw=ImageDraw.Draw(img)
+                draw.line([(sx,sy),p1],fill=(glow,50,0),width=2)
+                draw.line([(sx,sy),p2],fill=(glow,50,0),width=2)
+            tf_s=self._font(22)
+            self._outlined_text(draw,(sx-60,sy-35),"SIGMA STARE 🗿",tf_s,(255,50,50),(0,0,0),outline_w=2)
+
+        # ── RATIO BEAM ────────────────────────────────────────────────────────
+        for rb in hazards.ratio_beams:
+            pos=int(rb.position); hw=rb.width//2
+            bc=rb.color; gc=(min(255,bc[0]+50),bc[1],bc[2])
+            if rb.axis=="h":
+                draw.rectangle([ax1,pos-hw,ax2,pos+hw],fill=gc)
+                draw.line([(ax1,pos),(ax2,pos)],fill=(255,255,200),width=max(1,hw//2))
+            else:
+                draw.rectangle([pos-hw,ay1,pos+hw,ay2],fill=gc)
+                draw.line([(pos,ay1),(pos,ay2)],fill=(255,255,200),width=max(1,hw//2))
+            mid_x=(ax1+ax2)//2; mid_y=(ay1+ay2)//2
+            tf_rb=self._font(24)
+            self._outlined_text(draw,(mid_x-80,mid_y-20),"RATIO'D 📉",tf_rb,(255,80,0),(0,0,0),outline_w=2)
+            lf_rb=self._font(18)
+            for lx,ly in [(mid_x-120,mid_y+10),(mid_x+60,mid_y-40),(mid_x+30,mid_y+30)]:
+                self._outlined_text(draw,(lx,ly),"L",lf_rb,(255,255,0),(0,0,0),outline_w=1)
+
+        # ── NPC FREEZE ────────────────────────────────────────────────────────
+        for nf in hazards.npc_freezes:
+            if not hazards.frozen_ball_ids: continue
+            tf_npc=self._font(28)
+            if nf.phase=="warmup":
+                self._outlined_text(draw,(self.w//2-100,280),"NPC DETECTED 🤖",tf_npc,(100,200,255),(0,0,0),outline_w=3)
+            elif nf.phase=="frozen":
+                self._outlined_text(draw,(self.w//2-100,280),"FROZEN ❄️",tf_npc,(150,220,255),(0,0,0),outline_w=3)
+            elif nf.phase=="shatter":
+                self._outlined_text(draw,(self.w//2-100,280),"SHATTERED 💀",tf_npc,(200,200,200),(0,0,0),outline_w=3)
+
+        # ── BACKROOMS HOLES ───────────────────────────────────────────────────
+        for bh in hazards.backrooms_holes:
+            bx_h,by_h,bw_h,bh_h=int(bh.x),int(bh.y),int(bh.w),int(bh.h)
+            if bh.warmup_frames>0:
+                draw.rectangle([bx_h,by_h,bx_h+bw_h,by_h+bh_h],outline=(180,160,80),width=2)
+            else:
+                draw.rectangle([bx_h,by_h,bx_h+bw_h,by_h+bh_h],fill=(165,148,70))
+                for static_i in range(8):
+                    srx=render_rng.randint(bx_h,max(bx_h+1,bx_h+bw_h-3))
+                    sry=render_rng.randint(by_h,max(by_h+1,by_h+bh_h-3))
+                    sc=(render_rng.randint(80,120),render_rng.randint(70,110),render_rng.randint(20,60))
+                    draw.rectangle([srx,sry,srx+render_rng.randint(2,6),sry+render_rng.randint(1,3)],fill=sc)
+                draw.rectangle([bx_h,by_h,bx_h+bw_h,by_h+bh_h],outline=(200,180,80),width=2)
+        if hazards.backrooms_holes and any(not b.warmup_frames for b in hazards.backrooms_holes):
+            tf_br=self._font(20)
+            self._outlined_text(draw,(self.w//2-130,320),"CLIPPED INTO BACKROOMS",tf_br,(200,180,80),(0,0,0),outline_w=2)
+
     def _update_and_render_particles(self, draw, frame):
         surviving=[]
         for p in self._death_particles:
@@ -3138,35 +3592,45 @@ class Renderer:
             bbox_h=draw.textbbox((0,0),hook,font=hf2)
             self._outlined_text(draw,((w-bbox_h[2]+bbox_h[0])//2,h//2-30),hook,hf2,(255,50,50),outline_w=4)
 
-        if frame%350<160 and phase=="racing":
-            sf=self._font(20); st=">> SUBSCRIBE <<"
+        if alive==10:
+            af=self._font(38); at="🔥 TOP 10 🔥 FR FR NO CAP"; bbox_a=draw.textbbox((0,0),at,font=af)
+            pulse_s=1.0+0.2*math.sin(frame*0.5); col_t=(int(255),int(100+100*abs(math.sin(frame*0.3))),50)
+            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,col_t,outline_w=4)
+        if alive==5:
+            af=self._font(42); at="💀 FINAL 5 💀 COOKED FR"; bbox_a=draw.textbbox((0,0),at,font=af)
+            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,50,255),outline_w=4)
+        if alive==2:
+            af=self._font(46); at="🔥 1v1 FINAL!! 🔥"; bbox_a=draw.textbbox((0,0),at,font=af)
+            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,0,0),outline_w=5)
+            border_pulse=int(4+2*math.sin(frame*0.4))
+            draw.rectangle([0,0,w,h],outline=(255,50,50),width=border_pulse)
+
+        # Kill counter overlay
+        killed=total-alive; kf=self._font(18)
+        kill_txt=f"💀 {killed} eliminated"
+        self._outlined_text(draw,(w-200,h-100),kill_txt,kf,(255,80,80),(0,0,0),outline_w=2)
+
+        # Periodic subscriber reminder (every ~30s = ~900 frames)
+        if frame%900<200 and phase=="racing":
+            sub_prog=min(1.0,(frame%900)/20.0) if frame%900<20 else (1.0 if frame%900<180 else max(0.0,1.0-(frame%900-180)/20.0))
+            sf=self._font(20); st="🔔 SUBSCRIBE FOR MORE 🔔"
             bbox_s=draw.textbbox((0,0),st,font=sf); tw_s=bbox_s[2]-bbox_s[0]
             sx=(w-tw_s)//2; sy=h-78
             draw.rounded_rectangle([sx-8,sy-4,sx+tw_s+8,sy+26],radius=8,fill=(220,0,0))
             draw.text((sx,sy),st,font=sf,fill=(255,255,255))
 
-        if alive==10:
-            af=self._font(38); at="** TOP 10! **"; bbox_a=draw.textbbox((0,0),at,font=af)
-            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,100,50),outline_w=4)
-        if alive==5:
-            af=self._font(42); at="** FINAL 5! **"; bbox_a=draw.textbbox((0,0),at,font=af)
-            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,50,255),outline_w=4)
-        if alive==2:
-            af=self._font(46); at="** 1v1 FINAL! **"; bbox_a=draw.textbbox((0,0),at,font=af)
-            self._outlined_text(draw,((w-bbox_a[2]+bbox_a[0])//2,140),at,af,(255,0,0),outline_w=5)
-
     def _render_countdown(self, draw, t):
         w,h=self.w,self.h
         if t<1.0: txt,col="3",(255,100,100)
         elif t<2.0: txt,col="2",(255,200,100)
-        else: txt,col="GO!",(50,255,50)
+        else: txt,col="GO! 💀",(50,255,50)
         sub_t=t%1.0; scale=1.0+0.4*(1.0-sub_t); fs=int(140*scale); f=self._font(fs)
         bbox=draw.textbbox((0,0),txt,font=f); tw,th_t=bbox[2]-bbox[0],bbox[3]-bbox[1]
         self._outlined_text(draw,((w-tw)//2,(h-th_t)//2-120),txt,f,col,outline_w=5)
-        sf=self._font(28); st="100 BRAINROT BALLS - 1 SURVIVES"
+        sf=self._font(28); st="100 BRAINROT BALLS - 1 SURVIVES 💀"
         bbox_s=draw.textbbox((0,0),st,font=sf)
         self._outlined_text(draw,((w-bbox_s[2]+bbox_s[0])//2,h//2+40),st,sf,(255,255,255),outline_w=3)
-        sf2=self._font(20); st2="10 CHALLENGES - LAST BALL WINS"
+        sf2=self._font(20); st2="10 CHALLENGES - LAST BALL WINS FR FR"
         bbox_s2=draw.textbbox((0,0),st2,font=sf2)
         self._outlined_text(draw,((w-bbox_s2[2]+bbox_s2[0])//2,h//2+82),st2,sf2,(255,200,100),outline_w=2)
 
@@ -3188,8 +3652,8 @@ class Renderer:
         wf=self._font(72); wt="** WINNER! **"; bbox_w=draw.textbbox((0,0),wt,font=wf); tw_w=bbox_w[2]-bbox_w[0]
         self._outlined_text(draw,((w-tw_w)//2,h//4-20),wt,wf,(255,220,50),outline_w=5)
 
-        # *** CHANGED: big_r from 160 to 189 (~18% bigger) ***
-        big_r=189; cx_w=w//2; cy_w=h//2; bounce=int(abs(math.sin(frame*0.15))*25); cy_w-=bounce
+        # *** CHANGED: big_r to 230 (diameter=460, ~36% of 1280px screen height) ***
+        big_r=230; cx_w=w//2; cy_w=h//2; bounce=int(abs(math.sin(frame*0.15))*25); cy_w-=bounce
         hue_ring=(frame*0.02)%1.0
         for gr_i in range(big_r+40,big_r,-4):
             glow_hue=(hue_ring+(gr_i-big_r)/120.0)%1.0
@@ -3255,7 +3719,7 @@ class BallBattleRoyale:
         print(f"[*] Selected {len(assigned_names)} random names from {len(BRAINROT_NAMES)} pool.")
 
         print("[*] Loading avatars (GitHub custom + generated)...")
-        character_images=generate_character_images(assigned_names, size=96, seed=config.seed)
+        character_images=generate_character_images(assigned_names, size=160, seed=config.seed)
         print(f"[OK] {len(character_images)} avatars ready.")
 
         available_categories: Set[str]=set()
@@ -3343,7 +3807,8 @@ class BallBattleRoyale:
                     active_challenge_indices = {ci for ci, ef in active_challenge_windows if ef > frame}
 
                     renderer.set_challenge_banner(frame,ch["name"],ch["emoji"])
-                    renderer.add_event_text(frame,f"{ch['emoji']} {ch['name']}!",90)
+                    suf=random.choice(_EVENT_BRAINROT_SUFFIXES)
+                    renderer.add_event_text(frame,f"{ch['emoji']} {ch['name']} {suf}",90)
                     renderer.trigger_screen_shake(8.0)
                     challenge_times.append(t)
                     print(f"  {ch['emoji']} {ch['name']} at t={t:.1f}s (active {duration_f} frames)")
@@ -3518,7 +3983,7 @@ def main():
         duration=52.0,
         bitrate="6000k",
         num_balls=100,
-        ball_radius=13,
+        ball_radius=16,
         challenge_interval=4.0,
         challenges_per_game=10,
         audio_enabled=True,
