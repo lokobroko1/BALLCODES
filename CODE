@@ -81,7 +81,7 @@ def discover_github_images(cache_dir="/content/github_avatars"):
         if os.path.exists(cache_path):
             try:
                 img = Image.open(cache_path).convert("RGBA")
-                img = img.resize((160, 160), Image.LANCZOS)
+                img = img.resize((320, 320), Image.LANCZOS)
                 images.append(img)
                 print(f"  [CACHE] {fname}")
                 continue
@@ -96,7 +96,7 @@ def discover_github_images(cache_dir="/content/github_avatars"):
                 with open(cache_path, "wb") as f:
                     f.write(img_data)
                 img = Image.open(io.BytesIO(img_data)).convert("RGBA")
-                img = img.resize((160, 160), Image.LANCZOS)
+                img = img.resize((320, 320), Image.LANCZOS)
                 images.append(img)
                 print(f"  [OK] {fname} ({len(img_data)//1024}KB)")
             else:
@@ -2028,18 +2028,18 @@ print("OK: Smart avatar system ready.")
 
 @dataclass
 class Config:
-    width: int = 720
-    height: int = 1280
-    fps: int = 30
+    width: int = 1080
+    height: int = 1920
+    fps: int = 60
     duration: float = 52.0
-    bitrate: str = "6000k"
-    arena_margin_start: int = 40
-    arena_margin_end: int = 370
+    bitrate: str = "15000k"
+    arena_margin_start: int = 60
+    arena_margin_end: int = 555
     arena_color: Tuple[int, int, int] = (15, 12, 30)
     arena_border_color: Tuple[int, int, int] = (255, 255, 255)
-    arena_border_width: int = 4
+    arena_border_width: int = 6
     num_balls: int = 100
-    ball_radius: int = 13
+    ball_radius: int = 18
     ball_speed_min: float = 2.0
     ball_speed_max: float = 4.5
     ball_outline_width: int = 2
@@ -2141,6 +2141,38 @@ class BackroomsHole:
     x: float; y: float; w: float; h: float
     warmup_frames: int = 20; lifetime_frames: int = 120; done: bool = False
 
+@dataclass
+class BlackHoleHazard:
+    cx: float; cy: float; strength: float = 3.5
+    radius: float = 220.0; kill_radius: float = 25.0
+    lifetime_frames: int = 400; frame: int = 0
+
+@dataclass
+class LightningBolt:
+    target_x: float; target_y: float
+    warning_frames: int = 30; active: bool = False
+    strike_frame: int = -1; lifetime: int = 60; kill_radius: float = 35.0
+
+@dataclass
+class ToxicCloud:
+    cx: float; cy: float; radius: float = 50.0
+    max_radius: float = 130.0; expand_speed: float = 0.2
+    lifetime_frames: int = 500; frame: int = 0
+    ball_exposure: Dict[int, int] = field(default_factory=dict)
+
+@dataclass
+class OrbitalLaser:
+    direction: str = "h"
+    start_pos: float = 0.0; end_pos: float = 0.0
+    current_pos: float = 0.0; speed: float = 2.0
+    width: int = 60; warning_frames: int = 40
+    active: bool = False; done: bool = False
+
+@dataclass
+class Crack:
+    x1: float; y1: float; x2: float; y2: float
+    kill_width: float = 15.0; lifetime_frames: int = 180; frame: int = 0
+
 print("OK: Hazard data classes ready.")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2200,6 +2232,11 @@ class HazardManager:
         self.npc_freezes: List[NpcFreeze]=[]
         self.backrooms_holes: List[BackroomsHole]=[]
         self.frozen_ball_ids: Set[int]=set()
+        self.black_holes: List[BlackHoleHazard]=[]
+        self.lightning_bolts: List[LightningBolt]=[]
+        self.toxic_clouds: List[ToxicCloud]=[]
+        self.orbital_lasers: List[OrbitalLaser]=[]
+        self.cracks: List[Crack]=[]
 
     def update(self, t, frame, arena):
         ax1,ay1,ax2,ay2=arena
@@ -2294,6 +2331,45 @@ class HazardManager:
         if len(self.death_walls)>4: self.death_walls=self.death_walls[-4:]
         if len(self.vortices)>3: self.vortices=self.vortices[-3:]
 
+        for bh in self.black_holes:
+            bh.frame += 1
+            bh.lifetime_frames -= 1
+        self.black_holes = [bh for bh in self.black_holes if bh.lifetime_frames > 0]
+
+        for lb in self.lightning_bolts:
+            if lb.warning_frames > 0:
+                lb.warning_frames -= 1
+                if lb.warning_frames == 0:
+                    lb.active = True
+                    lb.strike_frame = frame
+            if lb.active:
+                lb.lifetime -= 1
+        self.lightning_bolts = [lb for lb in self.lightning_bolts
+                                 if lb.warning_frames > 0 or lb.lifetime > 0]
+
+        for tc in self.toxic_clouds:
+            tc.frame += 1
+            tc.lifetime_frames -= 1
+            if tc.radius < tc.max_radius:
+                tc.radius += tc.expand_speed
+        self.toxic_clouds = [tc for tc in self.toxic_clouds if tc.lifetime_frames > 0]
+
+        for ol in self.orbital_lasers:
+            if ol.warning_frames > 0:
+                ol.warning_frames -= 1
+                if ol.warning_frames == 0:
+                    ol.active = True
+            if ol.active and not ol.done:
+                ol.current_pos += ol.speed
+                if ol.current_pos >= ol.end_pos:
+                    ol.done = True
+        self.orbital_lasers = [ol for ol in self.orbital_lasers if not ol.done]
+
+        for cr in self.cracks:
+            cr.frame += 1
+            cr.lifetime_frames -= 1
+        self.cracks = [cr for cr in self.cracks if cr.lifetime_frames > 0]
+
     def check_ball_death(self, ball, frame, arena):
         """
         Visual-gameplay sync: kills happen exactly when the visual hazard reaches a ball.
@@ -2376,6 +2452,24 @@ class HazardManager:
             if bh.warmup_frames>0: continue
             if (bx-br<bh.x+bh.w and bx+br>bh.x and by-br<bh.y+bh.h and by+br>bh.y): return True
 
+        for bhz in self.black_holes:
+            if math.hypot(bx-bhz.cx, by-bhz.cy) < bhz.kill_radius + br: return True
+
+        for lb in self.lightning_bolts:
+            if lb.active and lb.strike_frame == frame:
+                if math.hypot(bx-lb.target_x, by-lb.target_y) < lb.kill_radius + br: return True
+
+        for cr in self.cracks:
+            if HazardManager._point_line_dist(bx, by, cr.x1, cr.y1, cr.x2, cr.y2) < cr.kill_width + br: return True
+
+        for ol in self.orbital_lasers:
+            if ol.active and not ol.done:
+                hw = ol.width // 2
+                if ol.direction == "h":
+                    if abs(by - ol.current_pos) < hw + br: return True
+                else:
+                    if abs(bx - ol.current_pos) < hw + br: return True
+
         return False
 
     def apply_vortex_force(self, ball):
@@ -2384,6 +2478,11 @@ class HazardManager:
             if 0<dist<v.radius:
                 force=v.strength*(1.0-dist/v.radius)/max(dist,1.0)
                 ball.vx+=dx*force*0.04; ball.vy+=dy*force*0.04
+        for bhz in self.black_holes:
+            dx=bhz.cx-ball.x; dy=bhz.cy-ball.y; dist=math.hypot(dx,dy)
+            if 0<dist<bhz.radius:
+                force=bhz.strength*bhz.radius/(dist*dist+10)
+                ball.vx+=dx/dist*force*0.15; ball.vy+=dy/dist*force*0.15
 
     @staticmethod
     def _point_line_dist(px,py,x1,y1,x2,y2):
@@ -2391,6 +2490,28 @@ class HazardManager:
         if dx==0 and dy==0: return math.hypot(px-x1,py-y1)
         t=max(0,min(1,((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy)))
         return math.hypot(px-(x1+t*dx),py-(y1+t*dy))
+
+    def update_toxic_exposure(self, balls):
+        """Track how long each ball has been inside a toxic cloud."""
+        alive_ids = {b.id for b in balls if b.alive}
+        for tc in self.toxic_clouds:
+            for bid in list(tc.ball_exposure.keys()):
+                if bid not in alive_ids:
+                    del tc.ball_exposure[bid]
+            for b in balls:
+                if not b.alive: continue
+                dist = math.hypot(b.x - tc.cx, b.y - tc.cy)
+                if dist < tc.radius + b.radius:
+                    tc.ball_exposure[b.id] = tc.ball_exposure.get(b.id, 0) + 1
+                else:
+                    tc.ball_exposure[b.id] = max(0, tc.ball_exposure.get(b.id, 0) - 2)
+
+    def check_toxic_death(self, ball):
+        """Returns True if ball has been in toxic cloud for 60+ frames."""
+        if not ball.alive or ball.invincible_timer > 0: return False
+        for tc in self.toxic_clouds:
+            if tc.ball_exposure.get(ball.id, 0) >= 60: return True
+        return False
 
 print("OK: Hazard system ready (SHOCKWAVE FIXED).")
 
@@ -2412,14 +2533,19 @@ def _snapshot_hazards(hazards):
         "ratio_beams":[(rb.axis,rb.position,rb.speed,rb.end_position,rb.width,rb.color) for rb in hazards.ratio_beams],
         "npc_freezes":[(list(nf.frozen_ids),nf.warmup_frames,nf.freeze_frames,nf.phase) for nf in hazards.npc_freezes],
         "backrooms_holes":[(bh.x,bh.y,bh.w,bh.h,bh.warmup_frames,bh.lifetime_frames) for bh in hazards.backrooms_holes],
+        "black_holes":[(b.cx,b.cy,b.strength,b.radius,b.kill_radius,b.lifetime_frames) for b in hazards.black_holes],
+        "lightning_bolts":[(lb.target_x,lb.target_y,lb.warning_frames,lb.active,lb.strike_frame,lb.lifetime,lb.kill_radius) for lb in hazards.lightning_bolts],
+        "toxic_clouds":[(tc.cx,tc.cy,tc.radius,tc.max_radius,tc.expand_speed,tc.lifetime_frames,dict(tc.ball_exposure)) for tc in hazards.toxic_clouds],
+        "orbital_lasers":[(ol.direction,ol.start_pos,ol.end_pos,ol.current_pos,ol.speed,ol.width,ol.warning_frames,ol.active,ol.done) for ol in hazards.orbital_lasers],
+        "cracks":[(cr.x1,cr.y1,cr.x2,cr.y2,cr.kill_width,cr.lifetime_frames) for cr in hazards.cracks],
     }
 
 def _restore_hazards(hazards, snap):
     hazards.fireballs=[Fireball(x=x,y=y,radius=r,vx=0,vy=0,color=c,trail=list(tr)) for x,y,r,c,tr in snap["fireballs"]]
     hazards.spinning_lasers=[SpinningLaser(cx=cx,cy=cy,angle=a,length=ln,thickness=th,kill_radius=kr,color=c,arms=arm,warmup_frames=wf) for cx,cy,a,ln,th,kr,c,arm,wf in snap["spinning_lasers"]]
     hazards.death_walls=[DeathWall(side=s,position=p,color=c,warmup_frames=wf,retreating=ret) for s,p,c,wf,ret in snap["death_walls"]]
-    # *** UPDATED: now restores kill_thickness too ***
     hazards.shockwaves=[Shockwave(cx=cx,cy=cy,current_radius=cr,thickness=th,color=c,kill_thickness=kt) for cx,cy,cr,th,c,kt in snap["shockwaves"]]
+    # *** kill_thickness restored to match visual ring thickness ***
     hazards.meteors=[Meteor(target_x=tx,target_y=ty,current_y=cy_m,x=mx,radius=r,blast_radius=br,exploded=ex,explosion_frame=ef,current_blast_radius=cbr) for tx,ty,cy_m,mx,r,br,ex,ef,cbr in snap["meteors"]]
     hazards.spikes=[Spike(x=x,y=y,radius=r,pulse_phase=pp,warmup_frames=wf) for x,y,r,pp,wf in snap["spikes"]]
     hazards.lava_zones=[LavaZone(side=s,thickness=th,warmup_frames=wf) for s,th,wf in snap["lava_zones"]]
@@ -2429,6 +2555,11 @@ def _restore_hazards(hazards, snap):
     hazards.npc_freezes=[NpcFreeze(frozen_ids=set(fids),warmup_frames=wf,freeze_frames=ff,phase=ph) for fids,wf,ff,ph in snap.get("npc_freezes",[])]
     hazards.backrooms_holes=[BackroomsHole(x=x,y=y,w=w,h=h,warmup_frames=wf,lifetime_frames=lf) for x,y,w,h,wf,lf in snap.get("backrooms_holes",[])]
     hazards.frozen_ball_ids={bid for nf in hazards.npc_freezes if nf.phase in ("warmup","frozen") for bid in nf.frozen_ids}
+    hazards.black_holes=[BlackHoleHazard(cx=cx,cy=cy,strength=st,radius=r,kill_radius=kr,lifetime_frames=lf) for cx,cy,st,r,kr,lf in snap.get("black_holes",[])]
+    hazards.lightning_bolts=[LightningBolt(target_x=tx,target_y=ty,warning_frames=wf,active=ac,strike_frame=sf,lifetime=lf,kill_radius=kr) for tx,ty,wf,ac,sf,lf,kr in snap.get("lightning_bolts",[])]
+    hazards.toxic_clouds=[ToxicCloud(cx=cx,cy=cy,radius=r,max_radius=mr,expand_speed=es,lifetime_frames=lf,ball_exposure=dict(be)) for cx,cy,r,mr,es,lf,be in snap.get("toxic_clouds",[])]
+    hazards.orbital_lasers=[OrbitalLaser(direction=d,start_pos=sp,end_pos=ep,current_pos=cp,speed=spd,width=w,warning_frames=wf,active=ac,done=dn) for d,sp,ep,cp,spd,w,wf,ac,dn in snap.get("orbital_lasers",[])]
+    hazards.cracks=[Crack(x1=x1,y1=y1,x2=x2,y2=y2,kill_width=kw,lifetime_frames=lf) for x1,y1,x2,y2,kw,lf in snap.get("cracks",[])]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CHALLENGE POOL
@@ -2565,25 +2696,45 @@ def _ch_teleport(balls,arena,hazards,rng,config,**kw):
 @_register("SCATTER SHOT","[SCATTER]","scatter")
 def _ch_scatter(balls,arena,hazards,rng,config,**kw):
     ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
+    kill_radius=40
+    renderer=kw.get("renderer"); frame=kw.get("frame",-1)
     for b in balls:
         if b.alive:
             dx,dy=b.x-cx,b.y-cy; dist=math.hypot(dx,dy)+0.01
-            force=rng.uniform(6,10)
-            b.vx+=(dx/dist)*force; b.vy+=(dy/dist)*force
+            if dist < kill_radius and b.invincible_timer<=0:
+                b.alive=False; b.death_frame=frame
+                if renderer: renderer.add_death_particles(b.x,b.y,b.color,frame)
+            else:
+                force=rng.uniform(6,10)
+                b.vx+=(dx/dist)*force; b.vy+=(dy/dist)*force
 
 @_register("IMPLOSION","[SWIRL]","implode")
 def _ch_implode(balls,arena,hazards,rng,config,**kw):
     ax1,ay1,ax2,ay2=arena; cx,cy=(ax1+ax2)/2,(ay1+ay2)/2
+    kill_radius=30
+    renderer=kw.get("renderer"); frame=kw.get("frame",-1)
     for b in balls:
         if b.alive:
             dx,dy=cx-b.x,cy-b.y; dist=math.hypot(dx,dy)+0.01
-            force=rng.uniform(5,9)
-            b.vx+=(dx/dist)*force; b.vy+=(dy/dist)*force
+            if dist < kill_radius and b.invincible_timer<=0:
+                b.alive=False; b.death_frame=frame
+                if renderer: renderer.add_death_particles(b.x,b.y,b.color,frame)
+            else:
+                force=rng.uniform(5,9)
+                b.vx+=(dx/dist)*force; b.vy+=(dy/dist)*force
 
 @_register("EARTHQUAKE","[QUAKE]","earthquake")
 def _ch_earthquake(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
     for b in balls:
         if b.alive: b.vx+=rng.uniform(-7,7); b.vy+=rng.uniform(-7,7)
+    num_cracks=rng.randint(5,8)
+    for _ in range(num_cracks):
+        x1_c=rng.uniform(ax1+20,ax2-20); y1_c=rng.uniform(ay1+20,ay2-20)
+        length=rng.uniform(60,160); angle=rng.uniform(0,math.pi)
+        x2_c=x1_c+math.cos(angle)*length; y2_c=y1_c+math.sin(angle)*length
+        hazards.cracks.append(Crack(x1=x1_c,y1=y1_c,x2=x2_c,y2=y2_c,
+            kill_width=rng.uniform(12,18),lifetime_frames=180))
 
 @_register("DOUBLE FIREBALL + LASER","[FIRE+ZAP]","combo1")
 def _ch_combo1(balls,arena,hazards,rng,config,**kw):
@@ -2711,20 +2862,67 @@ def _ch_backrooms_clip(balls,arena,hazards,rng,config,**kw):
         hazards.backrooms_holes.append(BackroomsHole(
             x=hx,y=hy,w=hw,h=hh,warmup_frames=15,lifetime_frames=90))
 
+@_register("GRAVITATIONAL BLACK HOLE","[VOID]","blackhole")
+def _ch_blackhole(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    hazards.black_holes.append(BlackHoleHazard(
+        cx=rng.uniform(ax1+80,ax2-80),cy=rng.uniform(ay1+80,ay2-80),
+        strength=rng.uniform(3.0,5.0),radius=rng.uniform(190,250),
+        kill_radius=rng.uniform(22,30),lifetime_frames=400))
+    print("OK: Gravitational Black Hole system ready.")
+
+@_register("LIGHTNING STORM ⚡","[ZAP]","lightning")
+def _ch_lightning(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    num_bolts=rng.randint(8,15)
+    for _ in range(num_bolts):
+        tx=rng.uniform(ax1+30,ax2-30); ty=rng.uniform(ay1+30,ay2-30)
+        delay=rng.randint(0,60)
+        hazards.lightning_bolts.append(LightningBolt(
+            target_x=tx,target_y=ty,warning_frames=30+delay,
+            kill_radius=35.0))
+    print("OK: Lightning Storm system ready.")
+
+@_register("TOXIC GAS CLOUD ☣️","[POISON]","gas")
+def _ch_toxic_gas(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    num_clouds=rng.randint(3,5)
+    for _ in range(num_clouds):
+        hazards.toxic_clouds.append(ToxicCloud(
+            cx=rng.uniform(ax1+60,ax2-60),cy=rng.uniform(ay1+60,ay2-60),
+            radius=rng.uniform(40,70),max_radius=rng.uniform(110,150),
+            expand_speed=rng.uniform(0.15,0.30),lifetime_frames=500))
+    print("OK: Toxic Gas Cloud system ready.")
+
+@_register("ORBITAL LASER ☀️","[BEAM]","orbital")
+def _ch_orbital_laser(balls,arena,hazards,rng,config,**kw):
+    ax1,ay1,ax2,ay2=arena
+    direction=rng.choice(["h","v"])
+    if direction=="h":
+        start=float(ay1); end=float(ay2)
+    else:
+        start=float(ax1); end=float(ax2)
+    hazards.orbital_lasers.append(OrbitalLaser(
+        direction=direction,start_pos=start,end_pos=end,
+        current_pos=start,speed=rng.uniform(1.5,3.0),
+        width=60,warning_frames=40,active=False))
+    print("OK: Orbital Laser system ready.")
+
 print(f"OK: {len(ALL_CHALLENGES)} challenges registered.")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHALLENGE ACTIVE DURATIONS (frames at 30fps)
+# CHALLENGE ACTIVE DURATIONS (frames at 60fps)
 # ─────────────────────────────────────────────────────────────────────────────
 
 CHALLENGE_ACTIVE_DURATIONS: Dict[str, int] = {
-    "fireball":300,"laser":700,"wall":500,"shockwave":90,"meteor":150,
-    "spikes":450,"lava":600,"vortex":700,"speed":60,"teleport":60,
-    "scatter":60,"implode":60,"earthquake":60,"freeze":90,"reverse":60,
-    "bumper":90,"tornado":500,"thanos":90,"invincible":180,"shrink":120,
-    "combo1":700,"combo2":150,"combo3":500,
-    "sigma_stare":140,"toilet_flush":200,"ratio_beam":150,
-    "npc_freeze":140,"backrooms_clip":130,
+    "fireball":600,"laser":1400,"wall":1000,"shockwave":180,"meteor":300,
+    "spikes":900,"lava":1200,"vortex":1400,"speed":120,"teleport":120,
+    "scatter":120,"implode":120,"earthquake":180,"freeze":180,"reverse":120,
+    "bumper":180,"tornado":1000,"thanos":180,"invincible":360,"shrink":240,
+    "combo1":1400,"combo2":300,"combo3":1000,
+    "sigma_stare":280,"toilet_flush":400,"ratio_beam":300,
+    "npc_freeze":280,"backrooms_clip":260,
+    "blackhole":400,"lightning":360,"gas":500,"orbital":400,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2752,6 +2950,7 @@ class PhysicsEngine:
         ax1,ay1,ax2,ay2=arena; dt=1.0/self.config.fps
         alive_balls=[b for b in balls if b.alive]
         frozen_ids=hazards.frozen_ball_ids if hasattr(hazards,'frozen_ball_ids') else set()
+        hazards.update_toxic_exposure(balls)
         for ball in alive_balls:
             if ball.invincible_timer>0: ball.invincible_timer-=dt
             if ball.id in frozen_ids:
@@ -2764,7 +2963,7 @@ class PhysicsEngine:
             ball.x+=ball.vx; ball.y+=ball.vy
             ball.vx+=self.rng.gauss(0,0.08); ball.vy+=self.rng.gauss(0,0.08)
             speed=math.hypot(ball.vx,ball.vy)
-            max_speed=9.0
+            max_speed=12.0
             if speed>max_speed: ball.vx=ball.vx/speed*max_speed; ball.vy=ball.vy/speed*max_speed
             r=ball.radius
             if ball.x-r<ax1: ball.x=ax1+r; ball.vx=abs(ball.vx)*self.config.bounce_damping
@@ -2977,6 +3176,30 @@ class AudioGenerator:
                 self._safe_add(audio,pos+off,mw,len(audio)); mel_i+=1
         print("[SONG] Brainrot Bass 💀 — extreme bass distortion chaos overload")
 
+    def _bgm_original_beat(self, audio, sr, race_start, race_end, rng_audio):
+        """Song 6: ORIGINAL — classic 165 BPM procedural kick/snare/hi-hat beat"""
+        bpm=165; bs=int(60.0/bpm*sr); hb=bs//2; qb=bs//4
+        k_len=int(0.10*sr); k_t=np.arange(k_len,dtype=np.float64)/sr
+        kick=np.sin(2*np.pi*70*k_t)*np.exp(-k_t*35)*0.50+rng_audio.standard_normal(k_len)*np.exp(-k_t*100)*0.03
+        sn_len=int(0.055*sr); sn_t=np.arange(sn_len,dtype=np.float64)/sr
+        snare=rng_audio.standard_normal(sn_len)*np.exp(-sn_t*45)*0.22+np.sin(2*np.pi*200*sn_t)*np.exp(-sn_t*50)*0.05
+        hh_len=int(0.013*sr)
+        hh=rng_audio.standard_normal(hh_len)*np.exp(-np.arange(hh_len,dtype=np.float64)/sr*180)*0.028
+        open_hh_len=int(0.04*sr)
+        open_hh=rng_audio.standard_normal(open_hh_len)*np.exp(-np.arange(open_hh_len,dtype=np.float64)/sr*30)*0.04
+        b_notes=[87.3,82.4,98.0,87.3]; b_dur=int(bs*0.70); b_t=np.arange(b_dur,dtype=np.float64)/sr; b_env=np.exp(-b_t*8)
+        num_beats=(race_end-race_start)//bs+1
+        for i in range(num_beats):
+            pos=race_start+i*bs
+            self._safe_add(audio,pos,kick,len(audio))
+            if i%4 in (1,3): self._safe_add(audio,pos,snare,len(audio))
+            for off in range(0,bs,hb): self._safe_add(audio,pos+off,hh,len(audio))
+            if i%4==3: self._safe_add(audio,pos+hb+qb,open_hh,len(audio))
+            fn=b_notes[i%len(b_notes)]
+            bw=np.sin(2*np.pi*fn*b_t)*b_env*0.15
+            self._safe_add(audio,pos,bw,len(audio))
+        print("[SONG] Original Beat 🥁 — classic 165 BPM procedural kick/snare")
+
     def generate(self, total_duration, winner_name, countdown_dur,
                  death_times, challenge_times, winner_time=None):
         sr=44100; total_samples=int(total_duration*sr)
@@ -2993,18 +3216,19 @@ class AudioGenerator:
         else: race_end=int((total_duration-5.0)*sr)
         race_end=min(race_end,total_samples)
 
-        # ── RANDOM SONG SELECTION (20% each) ──────────────────────────────────
+        # ── RANDOM SONG SELECTION (~16.67% each, 6 songs) ────────────────────
         song_fns=[
             self._bgm_sigma_phonk,
             self._bgm_skibidi_bounce,
             self._bgm_ohio_trap,
             self._bgm_rizz_wave,
             self._bgm_brainrot_bass,
+            self._bgm_original_beat,
         ]
-        song_names=["Sigma Phonk","Skibidi Bounce","Ohio Trap","Rizz Wave","Brainrot Bass"]
-        rng_song=random.Random(self.config.seed)
+        song_names=["Sigma Phonk","Skibidi Bounce","Ohio Trap","Rizz Wave","Brainrot Bass","Original Beat"]
+        rng_song=random.Random(self.config.seed+42)
         chosen_idx=rng_song.randint(0,len(song_fns)-1)
-        print(f"\n🎵 SONG SELECTED: {song_names[chosen_idx]} (1 of 5, 20% chance each)")
+        print(f"\n🎵 SONG SELECTED: {song_names[chosen_idx]} (1 of 6, ~16.67% chance each)")
         song_fns[chosen_idx](audio,sr,race_start,race_end,rng_audio)
         # ─────────────────────────────────────────────────────────────────────
 
@@ -3091,12 +3315,20 @@ class AudioGenerator:
             try: os.remove(f)
             except OSError: pass
 
-print("OK: Audio generator ready (5 random songs system).")
+print("OK: Audio generator ready (6 random songs system, ~16.67% each).")
 # ─────────────────────────────────────────────────────────────────────────────
 # RENDERER — WINNER IMAGE 15-20% BIGGER
 # ─────────────────────────────────────────────────────────────────────────────
 
 class Renderer:
+    _KILL_TEXTS = [
+        "COOKED 💀", "RATIO'd", "L + BOZO", "SKILL ISSUE", "GET REKT",
+        "ABSOLUTELY COOKED", "DOWN BAD", "NO SHOT", "IM DEAD 💀", "BRUH",
+        "NAHHH", "GONE FR", "RIP BOZO", "CAUGHT LACKING", "SENT TO OHIO",
+        "GG BOZO", "L RATIO", "COOKED FR FR", "BYE BRO", "DELETED",
+    ]
+    _BRAINROT_EMOJI_POOL = list("💀🗿😭🔥💯🤡☠️🚽📸⚡")
+
     def __init__(self, config, character_images):
         self.config=config; self.w=config.width; self.h=config.height
         self._font_cache: Dict[int,Any]={}
@@ -3108,6 +3340,9 @@ class Renderer:
         self._elimination_feed: List[Tuple[int,str,Tuple[int,int,int]]]=[]
         self._screen_shake: float=0.0
         self._background_img: Optional[Image.Image]=None
+        self._kill_texts: List[Dict]=[]
+        self._emoji_particles: List[Dict]=[]
+        self._white_flash: int=0
         if config.background_image_path and os.path.exists(config.background_image_path):
             try:
                 bg=Image.open(config.background_image_path).convert("RGB")
@@ -3145,6 +3380,21 @@ class Renderer:
             angle=random.uniform(0,2*math.pi); speed=random.uniform(2,9)
             self._death_particles.append({"x":x,"y":y,"vx":math.cos(angle)*speed,
                 "vy":math.sin(angle)*speed,"color":color,"life":1.0,"size":random.uniform(2,7)})
+        kill_text=random.choice(self._KILL_TEXTS)
+        col=random.choice([(255,50,50),(255,200,50),(255,100,255),(100,255,100)])
+        self._kill_texts.append({"x":x,"y":y,"text":kill_text,"life":1.0,"vy":-1.5,"color":col})
+
+    def trigger_white_flash(self, intensity=3):
+        self._white_flash=max(self._white_flash, intensity)
+
+    def add_emoji_rain(self, count=20):
+        for _ in range(count):
+            em=random.choice(self._BRAINROT_EMOJI_POOL)
+            self._emoji_particles.append({
+                "x":random.uniform(0,self.w),"y":random.uniform(-50,0),
+                "vx":random.uniform(-1.5,1.5),"vy":random.uniform(3,8),
+                "emoji":em,"life":1.0,"decay":random.uniform(0.012,0.025),
+                "rot":random.uniform(0,360)})
 
     def add_bubble_explosion(self, x, y, color, frame):
         for _ in range(random.randint(8,16)):
@@ -3217,23 +3467,60 @@ class Renderer:
 
         alive_balls=sorted([b for b in balls if b.alive],key=lambda b:b.y)
         frozen_ids=hazards.frozen_ball_ids if hasattr(hazards,'frozen_ball_ids') else set()
-        for ball in alive_balls: self._render_ball(draw,img,ball,frame,frozen_ids)
+        # Highlight balls inside toxic clouds
+        toxic_ball_ids={bid for tc in hazards.toxic_clouds for bid,exp in tc.ball_exposure.items() if exp>0}
+        for ball in alive_balls: self._render_ball(draw,img,ball,frame,frozen_ids,toxic_ball_ids)
 
         self._render_hud(draw,img,t,frame,alive_count,total,phase,winner,balls,
                          selected_challenges,active_challenge_indices,applied_challenge_indices)
         self._render_elimination_feed(draw,frame)
         self._render_challenge_banner(draw,frame)
+        self._render_kill_texts(draw,frame)
+        self._render_emoji_particles(draw,frame)
 
         if phase=="countdown": self._render_countdown(draw,t)
         elif phase=="winner" and winner: img=self._render_winner_screen(img,draw,winner,t,frame)
+
+        # White flash overlay
+        if self._white_flash > 0:
+            flash_img=Image.new("RGBA",(w,h),(255,255,255,min(200,self._white_flash*60)))
+            img=img.convert("RGBA"); img=Image.alpha_composite(img,flash_img); img=img.convert("RGB")
+            self._white_flash -= 1
 
         if abs(shake_x)>0 or abs(shake_y)>0:
             shifted=Image.new("RGB",(w,h),(10,8,18)); shifted.paste(img,(shake_x,shake_y)); img=shifted
         return np.array(img,dtype=np.uint8)
 
-    def _render_ball(self, draw, img, ball, frame, frozen_ids=None):
+    def _render_kill_texts(self, draw, frame):
+        surviving=[]
+        kf=self._font(20)
+        for kt in self._kill_texts:
+            kt["y"]+=kt["vy"]; kt["life"]-=0.033
+            if kt["life"]>0:
+                alpha=int(255*kt["life"])
+                col=tuple(list(kt["color"][:3])+[alpha]) if len(kt["color"])==4 else kt["color"]
+                try:
+                    draw.text((int(kt["x"])-30, int(kt["y"])), kt["text"], font=kf, fill=col)
+                except Exception: pass
+                surviving.append(kt)
+        self._kill_texts=surviving
+
+    def _render_emoji_particles(self, draw, frame):
+        surviving=[]
+        ef=self._font(28)
+        for ep in self._emoji_particles:
+            ep["x"]+=ep["vx"]; ep["y"]+=ep["vy"]; ep["life"]-=ep["decay"]
+            if ep["life"]>0:
+                try:
+                    draw.text((int(ep["x"]),int(ep["y"])),ep["emoji"],font=ef,fill=(255,255,255))
+                except Exception: pass
+                surviving.append(ep)
+        self._emoji_particles=surviving
+
+    def _render_ball(self, draw, img, ball, frame, frozen_ids=None, toxic_ball_ids=None):
         x,y,r=int(ball.x),int(ball.y),ball.radius
         is_frozen=(frozen_ids is not None and ball.id in frozen_ids)
+        in_toxic=(toxic_ball_ids is not None and ball.id in toxic_ball_ids)
         for i,(tx,ty) in enumerate(ball.trail):
             af=(i+1)/(len(ball.trail)+1); tr=max(2,int(r*af*0.5))
             c=tuple(int(v*af*0.4) for v in ball.color)
@@ -3242,6 +3529,8 @@ class Renderer:
         shadow_r=r+4
         draw.ellipse([x-shadow_r+4,y-shadow_r+6,x+shadow_r+4,y+shadow_r+6],fill=(0,0,0))
         draw.ellipse([x-r+3,y-r+3,x+r+3,y+r+3],fill=(0,0,0))
+        if in_toxic and frame%6<3:
+            draw.ellipse([x-r-3,y-r-3,x+r+3,y+r+3],outline=(200,50,0),width=3)
         if ball.invincible_timer>0:
             gr=r+5+int(math.sin(frame*0.5)*3)
             draw.ellipse([x-gr,y-gr,x+gr,y+gr],outline=(255,255,100),width=3)
@@ -3469,6 +3758,93 @@ class Renderer:
             tf_br=self._font(20)
             self._outlined_text(draw,(self.w//2-130,320),"CLIPPED INTO BACKROOMS",tf_br,(200,180,80),(0,0,0),outline_w=2)
 
+        # ── BLACK HOLE ────────────────────────────────────────────────────────
+        for bhz in hazards.black_holes:
+            bcx,bcy=int(bhz.cx),int(bhz.cy)
+            pulse_bh=abs(math.sin(bhz.frame*0.06))
+            for ring in range(int(bhz.radius),0,-15):
+                alpha=int(80*(ring/bhz.radius))
+                ring_col=(min(255,60+int(pulse_bh*80)),0,min(255,120+int(pulse_bh*135)))
+                draw.ellipse([bcx-ring,bcy-ring,bcx+ring,bcy+ring],outline=ring_col,width=2)
+            kr=int(bhz.kill_radius+4)
+            draw.ellipse([bcx-kr,bcy-kr,bcx+kr,bcy+kr],fill=(0,0,0),outline=(180,0,255),width=3)
+            for seg in range(20):
+                a=bhz.frame*0.08+seg*math.pi/10; spiral_r=bhz.radius*(0.2+0.8*seg/20)
+                px_bh=bcx+int(math.cos(a)*spiral_r*0.5); py_bh=bcy+int(math.sin(a)*spiral_r*0.5)
+                draw.ellipse([px_bh-2,py_bh-2,px_bh+2,py_bh+2],fill=(200,0,255))
+            tf_bh=self._font(22)
+            self._outlined_text(draw,(bcx-70,bcy-int(bhz.kill_radius)-30),"BLACK HOLE 🌑",tf_bh,(200,0,255),(0,0,0),outline_w=2)
+
+        # ── LIGHTNING BOLTS ───────────────────────────────────────────────────
+        for lb in hazards.lightning_bolts:
+            tx,ty=int(lb.target_x),int(lb.target_y)
+            if lb.warning_frames > 0:
+                alpha_w=int(180*abs(math.sin(lb.warning_frames*0.3)))
+                draw.ellipse([tx-int(lb.kill_radius),ty-int(lb.kill_radius),tx+int(lb.kill_radius),ty+int(lb.kill_radius)],
+                    outline=(255,alpha_w,0),width=3)
+            elif lb.active and lb.lifetime > 0:
+                age=60-lb.lifetime
+                # Draw zigzag lightning bolt from top to target
+                pts=[(tx,ay1)]; cx_lb=tx; num_segs=8
+                for seg in range(1,num_segs):
+                    progress_s=seg/num_segs; cy_lb=ay1+int((ty-ay1)*progress_s)
+                    cx_lb=tx+render_rng.randint(-30,30)
+                    pts.append((cx_lb,cy_lb))
+                pts.append((tx,ty))
+                brightness=255 if age<5 else max(50,255-age*15)
+                if len(pts)>=2: draw.line(pts,fill=(brightness,brightness,50),width=max(2,8-age//2))
+                if len(pts)>=2: draw.line(pts,fill=(255,255,255),width=max(1,4-age//3))
+                draw.ellipse([tx-20,ty-20,tx+20,ty+20],fill=(255,200,0))
+
+        # ── TOXIC CLOUDS ──────────────────────────────────────────────────────
+        for tc in hazards.toxic_clouds:
+            tcx,tcy=int(tc.cx),int(tc.cy); tr=int(tc.radius)
+            cloud_img=Image.new("RGBA",(self.w,self.h),(0,0,0,0))
+            cd=ImageDraw.Draw(cloud_img)
+            pulse_tc=abs(math.sin(tc.frame*0.05))
+            alpha_tc=int(70+40*pulse_tc)
+            cd.ellipse([tcx-tr,tcy-tr,tcx+tr,tcy+tr],fill=(0,200,50,alpha_tc))
+            cd.ellipse([tcx-tr,tcy-tr,tcx+tr,tcy+tr],outline=(100,255,100,180),width=3)
+            img.paste(cloud_img,(0,0),cloud_img); draw=ImageDraw.Draw(img)
+            for _ in range(5):
+                px_tc=render_rng.randint(tcx-tr,tcx+tr if tcx+tr>tcx-tr else tcx-tr+1)
+                py_tc=render_rng.randint(tcy-tr,tcy+tr if tcy+tr>tcy-tr else tcy-tr+1)
+                if math.hypot(px_tc-tcx,py_tc-tcy)<tr:
+                    draw.ellipse([px_tc-2,py_tc-2,px_tc+2,py_tc+2],fill=(150,255,100))
+            tf_tc=self._font(18)
+            self._outlined_text(draw,(tcx-50,tcy-tr-25),"TOXIC GAS ☣️",tf_tc,(100,255,100),(0,0,0),outline_w=2)
+
+        # ── ORBITAL LASER ─────────────────────────────────────────────────────
+        for ol in hazards.orbital_lasers:
+            hw=ol.width//2
+            if not ol.active:
+                warn_col=(255,50,50) if frame%10<5 else (200,0,0)
+                if ol.direction=="h":
+                    draw.line([(ax1,int(ol.start_pos)),(ax2,int(ol.start_pos))],fill=warn_col,width=2)
+                else:
+                    draw.line([(int(ol.start_pos),ay1),(int(ol.start_pos),ay2)],fill=warn_col,width=2)
+                tf_ol=self._font(22)
+                self._outlined_text(draw,(self.w//2-80,ay1+20),"ORBITAL LASER ⚠️",tf_ol,(255,50,50),(0,0,0),outline_w=2)
+            else:
+                pos=int(ol.current_pos)
+                if ol.direction=="h":
+                    draw.rectangle([ax1,pos-hw,ax2,pos+hw],fill=(255,100,0))
+                    draw.line([(ax1,pos),(ax2,pos)],fill=(255,255,200),width=max(1,hw//2))
+                    draw.rectangle([ax1,pos-hw-4,ax2,pos-hw],fill=(255,50,0))
+                    draw.rectangle([ax1,pos+hw,ax2,pos+hw+4],fill=(255,50,0))
+                else:
+                    draw.rectangle([pos-hw,ay1,pos+hw,ay2],fill=(255,100,0))
+                    draw.line([(pos,ay1),(pos,ay2)],fill=(255,255,200),width=max(1,hw//2))
+                tf_ol=self._font(22)
+                self._outlined_text(draw,(self.w//2-80,ay1+20),"ORBITAL LASER ☀️",tf_ol,(255,200,0),(0,0,0),outline_w=2)
+
+        # ── EARTHQUAKE CRACKS ─────────────────────────────────────────────────
+        for cr in hazards.cracks:
+            life_f=cr.lifetime_frames/180.0
+            crack_col=(int(200*life_f),int(50*life_f),0)
+            draw.line([(int(cr.x1),int(cr.y1)),(int(cr.x2),int(cr.y2))],fill=crack_col,width=max(2,int(cr.kill_width//3)))
+            draw.line([(int(cr.x1),int(cr.y1)),(int(cr.x2),int(cr.y2))],fill=(255,150,0),width=2)
+
     def _update_and_render_particles(self, draw, frame):
         surviving=[]
         for p in self._death_particles:
@@ -3529,23 +3905,33 @@ class Renderer:
                     applied_challenge_indices: Set[int]):
         w,h=self.w,self.h
         if phase=="countdown": return
-        tf=self._font(30); title=">> BRAINROT BATTLE ROYALE <<"
+        tf=self._font(36); title=">> BRAINROT BATTLE ROYALE <<"
         bbox_t=draw.textbbox((0,0),title,font=tf); tw_t=bbox_t[2]-bbox_t[0]
         self._outlined_text(draw,((w-tw_t)//2,12),title,tf,(255,255,255))
 
-        cfs=52
-        if alive<=10: cfs=int(52*(1.0+0.15*math.sin(frame*0.3)))
+        cfs=62
+        blink_visible=True
+        if alive<=10:
+            cfs=int(62*(1.0+0.2*math.sin(frame*0.4)))
+            blink_visible=(frame%20<15)
         cf=self._font(cfs); ct=str(alive); bbox_c=draw.textbbox((0,0),ct,font=cf); tw_c=bbox_c[2]-bbox_c[0]
         if alive>50: cc=(100,255,100)
         elif alive>20: cc=(255,255,100)
         elif alive>5: cc=(255,150,50)
         else: cc=(255,50,50)
-        self._outlined_text(draw,((w-tw_c)//2,52),ct,cf,cc,outline_w=4)
-        lf=self._font(22); self._outlined_text(draw,((w-42)//2,108),"ALIVE",lf,(200,200,200))
+        # Semi-transparent background for alive counter
+        draw.rounded_rectangle([(w-tw_c)//2-12,50,((w-tw_c)//2+tw_c+12),130],radius=10,fill=(0,0,0))
+        if blink_visible or alive>10:
+            self._outlined_text(draw,((w-tw_c)//2,52),ct,cf,cc,outline_w=5)
+        lf=self._font(26)
+        alive_label="ALIVE" if alive>10 else "🚨 ALIVE 🚨"
+        alive_label_col=(200,200,200) if alive>10 else (255,50,50)
+        bbox_al=draw.textbbox((0,0),alive_label,font=lf)
+        self._outlined_text(draw,((w-bbox_al[2]+bbox_al[0])//2,118),alive_label,lf,alive_label_col)
 
-        chf=self._font(13); chf_h=self._font(15); cx_ch,cy_ch=8,155
+        chf=self._font(14); chf_h=self._font(16); cx_ch,cy_ch=8,180
         self._outlined_text(draw,(cx_ch,cy_ch),"CHALLENGES:",chf_h,(255,200,100),outline_w=2)
-        cy_ch+=20
+        cy_ch+=22
 
         for idx, ch in enumerate(selected_challenges):
             is_active  = idx in active_challenge_indices
@@ -3719,7 +4105,7 @@ class BallBattleRoyale:
         print(f"[*] Selected {len(assigned_names)} random names from {len(BRAINROT_NAMES)} pool.")
 
         print("[*] Loading avatars (GitHub custom + generated)...")
-        character_images=generate_character_images(assigned_names, size=160, seed=config.seed)
+        character_images=generate_character_images(assigned_names, size=320, seed=config.seed)
         print(f"[OK] {len(character_images)} avatars ready.")
 
         available_categories: Set[str]=set()
@@ -3818,13 +4204,27 @@ class BallBattleRoyale:
                 physics.update_balls(balls,arena,hazards,frame)
 
                 forced_kill_timer+=1
+                kill_count_this_frame=0
+                tracked_dead_ids: Set[int]=set()
                 for ball in [b for b in balls if b.alive]:
-                    if hazards.check_ball_death(ball,frame,arena):
+                    died=hazards.check_ball_death(ball,frame,arena) or hazards.check_toxic_death(ball)
+                    if died:
                         ball.alive=False; ball.death_frame=frame
                         renderer.add_death_particles(ball.x,ball.y,ball.color,frame)
                         renderer.add_bubble_explosion(ball.x,ball.y,ball.color,frame)
                         renderer.add_elimination(frame,ball.name,ball.color)
-                        death_times.append(t); forced_kill_timer=0
+                        renderer.trigger_screen_shake(5.0)
+                        death_times.append(t); forced_kill_timer=0; kill_count_this_frame+=1
+                        tracked_dead_ids.add(ball.id)
+                # Process immediate kills from challenge effects (scatter/implosion set death_frame=frame before hazard loop)
+                for ball in balls:
+                    if not ball.alive and ball.death_frame==frame and ball.id not in tracked_dead_ids:
+                        renderer.add_bubble_explosion(ball.x,ball.y,ball.color,frame)
+                        renderer.add_elimination(frame,ball.name,ball.color)
+                        death_times.append(t); forced_kill_timer=0; kill_count_this_frame+=1
+                if kill_count_this_frame>=3:
+                    renderer.trigger_white_flash(3)
+                    renderer.add_emoji_rain(min(25, kill_count_this_frame*5))
 
                 alive_now=sum(1 for b in balls if b.alive)
                 race_progress=max(0.001,(t-countdown_dur)/race_duration)
@@ -3972,18 +4372,20 @@ def display_video(video_path):
 
 def main():
     print("\n"+"="*60)
-    print("  BRAINROT BATTLE ROYALE - v6 CUSTOM + MEGA AVATAR EDITION")
+    print("  BRAINROT BATTLE ROYALE - v7 HD 1080p + MEGA UPGRADE")
     print(f"  {len(BRAINROT_NAMES)} names | {len(_AVATAR_STYLES)} avatar styles")
     print(f"  GitHub: {GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME} (auto-detect)")
-    print("  100 balls. 10 challenges. Target: under 60s.")
+    print("  100 balls. 10 challenges. 1080x1920 @ 60fps. 6 random songs.")
     print("="*60+"\n")
 
     config=Config(
-        width=720, height=1280, fps=30,
+        width=1080, height=1920, fps=60,
         duration=52.0,
-        bitrate="6000k",
+        bitrate="15000k",
         num_balls=100,
-        ball_radius=16,
+        ball_radius=18,
+        arena_margin_start=60,
+        arena_margin_end=555,
         challenge_interval=4.0,
         challenges_per_game=10,
         audio_enabled=True,
@@ -3992,6 +4394,23 @@ def main():
         seed=None,
         background_image_path=None,
     )
+
+    game=BallBattleRoyale(config)
+    video_path=game.run()
+    display_video(video_path)
+
+    print("\n"+"="*60)
+    print(f"  DONE! File: {video_path}")
+    print("="*60)
+    print("\nTIPS:")
+    print("  Run again for a different outcome!")
+    print("  Set config.seed = 12345 for reproducible results")
+    print("  Set config.background_image_path = '/path/to/img.jpg'")
+    print(f"\n  TO ADD MORE CUSTOM AVATARS:")
+    print(f"  1. Go to https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}")
+    print(f"  2. Upload 005.png, 006.png, 007.png, etc.")
+    print(f"  3. Run the code again — they'll auto-load! No code changes needed!")
+    return video_path
 
     game=BallBattleRoyale(config)
     video_path=game.run()
