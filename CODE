@@ -16,7 +16,7 @@ for _pkg in _PACKAGES:
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 print("OK: Dependencies installed.")
 
-import os, io, math, time, random, colorsys, gc, glob, traceback, hashlib
+import os, io, math, time, random, colorsys, gc, glob, traceback, hashlib, re
 import wave as wave_mod
 import requests
 from dataclasses import dataclass, field
@@ -234,7 +234,64 @@ def _get_font(size: int):
             except Exception: continue
     return ImageFont.load_default()
 
+_NOTO_EMOJI_FONT_PATH = "/content/NotoColorEmoji-Regular.ttf"
+_NOTO_EMOJI_FONT_URL = (
+    "https://github.com/googlefonts/noto-emoji/raw/main/fonts/NotoColorEmoji-Regular.ttf"
+)
+
+def _download_noto_emoji_font() -> bool:
+    """Download NotoColorEmoji font if not already cached. Returns True on success."""
+    if os.path.exists(_NOTO_EMOJI_FONT_PATH):
+        return True
+    try:
+        r = requests.get(_NOTO_EMOJI_FONT_URL, timeout=30)
+        if r.status_code == 200:
+            with open(_NOTO_EMOJI_FONT_PATH, "wb") as f:
+                f.write(r.content)
+            return True
+    except Exception:
+        pass
+    return False
+
+_EMOJI_FONT_AVAILABLE = _download_noto_emoji_font()
+
+def _get_emoji_font(size: int):
+    """Load NotoColorEmoji at the given size, or fall back to the regular font."""
+    if _EMOJI_FONT_AVAILABLE and os.path.exists(_NOTO_EMOJI_FONT_PATH):
+        try:
+            return ImageFont.truetype(_NOTO_EMOJI_FONT_PATH, size)
+        except Exception:
+            pass
+    return _get_font(size)
+
+_EMOJI_RE = re.compile(
+    "[\U0001F300-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U0001F000-\U0001F9FF"
+    "\U0000FE00-\U0000FE0F"
+    "\u2194-\u2199"
+    "\u2300-\u23FF"
+    "\u2B00-\u2BFF"
+    "\U0001FA00-\U0001FA6F"
+    "\U0001FA70-\U0001FAFF"
+    "]+"
+)
+
+def _has_emoji(text: str) -> bool:
+    """Return True if *text* contains any emoji characters."""
+    return bool(_EMOJI_RE.search(text))
+
 def _draw_text_centered(draw, text, font, cx, cy, fill, outline=(0, 0, 0)):
+    if _has_emoji(text) and _EMOJI_FONT_AVAILABLE:
+        try:
+            emoji_font = _get_emoji_font(font.size)
+        except AttributeError:
+            emoji_font = _get_emoji_font(20)
+        bbox = draw.textbbox((0, 0), text, font=emoji_font)
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+        x, y = cx-tw//2, cy-th//2
+        draw.text((x, y), text, font=emoji_font, fill=fill, embedded_color=True)
+        return
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
     x, y = cx-tw//2, cy-th//2
@@ -1407,12 +1464,15 @@ def _avatar_emoji_explosion(rng, size):
     for _ in range(rng.randint(8, 18)):
         word = rng.choice(_BRAINROT_WORDS + ["💀","🗿","🔥","💯","🤡","W","L"])
         fs = rng.randint(max(5, size//14), max(8, size//6))
-        font = _get_font(fs)
+        font = _get_emoji_font(fs) if _has_emoji(word) else _get_font(fs)
         wx = rng.randint(10, size-10)
         wy = rng.randint(10, size-10)
         if math.hypot(wx - m, wy - m) < size//2 - 5:
             col = _hsv(rng.random(), 0.9, 1.0)
-            draw.text((wx - fs, wy - fs//2), word[:6], font=font, fill=col)
+            if _has_emoji(word):
+                draw.text((wx - fs, wy - fs//2), word[:6], font=font, fill=col, embedded_color=True)
+            else:
+                draw.text((wx - fs, wy - fs//2), word[:6], font=font, fill=col)
     main = rng.choice(["BRAINROT", "SIGMA", "SKIBIDI", "OHIO", "RIZZ"])
     mf = _get_font(max(8, size // 5))
     _draw_text_centered(draw, main, mf, m, m,
